@@ -1,2 +1,2 @@
 # ece496
-UofT ECE496 — GPU SSSP Scheduler
+UofT ECE496 — GPU Relaxed Priority Scheduler
