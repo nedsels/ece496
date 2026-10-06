@@ -1,0 +1,236 @@
+#pragma once
+
+#include <common/utils.cuh>
+
+template <typename TaskType>
+unsigned InitialScheduler<TaskType>::init(const unsigned byte_capacity,
+                                          const unsigned num_blocks,
+                                          const unsigned num_warps) {
+  _on_device = 0;
+  _byte_capacity = byte_capacity;
+  _num_warps = num_warps;
+  _num_blocks = num_blocks;
+  _num_sections = NUM_SECTIONS;
+  return 1;
+}
+
+template <typename TaskType>
+InitialScheduler<TaskType>*
+InitialScheduler<TaskType>::device_setup(const cudaDeviceProp& prop) {
+  CUDA_CHECK(cudaMalloc((void**)&_d_alloc, _byte_capacity));
+  char* curr = _d_alloc;
+  CUDA_CHECK(cudaMemset(curr, 0, _byte_capacity));
+  const char* end = curr + _byte_capacity;
+
+  InitialScheduler<TaskType>* d_scheduler =
+      reinterpret_cast<InitialScheduler<TaskType>*>(curr);
+  const unsigned scheduler_bytes = sizeof(InitialScheduler<TaskType>);
+  curr += scheduler_bytes;
+
+  _section_metadata = reinterpret_cast<struct SectionMD*>(align_up<uintptr_t>(
+      reinterpret_cast<uintptr_t>(curr), alignof(struct SectionMD)));
+  curr = reinterpret_cast<char*>(_section_metadata) + sizeof(struct SectionMD);
+
+  if (curr >= end) {
+    device_dealloc();
+    return nullptr;
+  }
+
+  _queue = reinterpret_cast<TaskType*>(align_up<uintptr_t>(
+      reinterpret_cast<uintptr_t>(curr), alignof(TaskType)));
+  _section_capacity = (end - reinterpret_cast<char*>(_queue)) /
+                      (sizeof(TaskType) * _num_sections);
+  _queue_capacity_bytes =
+      _section_capacity * (sizeof(TaskType) * _num_sections);
+
+  if (_section_capacity < prop.warpSize) {
+    device_dealloc();
+    return nullptr;
+  }
+
+  _on_device = 1;
+  CUDA_CHECK(cudaMemcpy(d_scheduler, this, scheduler_bytes, cudaMemcpyHostToDevice));
+  _on_device = 0;
+
+  return d_scheduler;
+}
+
+template <typename TaskType>
+unsigned InitialScheduler<TaskType>::device_dealloc() {
+  cudaFree(_d_alloc);
+  return 1;
+}
+
+template <typename TaskType>
+__device__ PushResult InitialScheduler<TaskType>::push(
+    TaskType* tasks, unsigned num_tasks, const unsigned thread_id) {
+  const unsigned lane_id = thread_id & 31;
+  if (lane_id == 0) {
+    atomicAdd(&_num_warps_writing, 1);
+  }
+
+  while (true) {
+    unsigned ballot = __ballot_sync(__activemask(), num_tasks);
+    if (ballot == 0) {
+      if (lane_id == 0) {
+        atomicSub(&_num_warps_writing, 1);
+      }
+      __syncwarp();
+      return PUSH_SUCCESS;
+    }
+
+    unsigned curr_section_idx = 0;
+    bool section_busy = false;
+    bool section_full = false;
+    if (lane_id == 0) {
+      curr_section_idx = atomicInc(&_write_section, _num_sections - 1);
+      section_busy = atomicExch(&(_section_metadata[curr_section_idx].busy), 1);
+      section_full = _section_metadata[curr_section_idx].full;
+    }
+
+    section_busy = __shfl_sync(__activemask(), section_busy, 0);
+    if (section_busy) {
+      continue;
+    }
+
+    section_full = __shfl_sync(__activemask(), section_full, 0);
+    if (section_full) {
+      if (lane_id == 0) {
+        section_busy =
+            atomicExch(&(_section_metadata[curr_section_idx].busy), 0);
+      }
+      if (_num_full_sections == _num_sections &&
+          _num_warps_writing == _num_warps) {
+        __syncwarp();
+        return PUSH_DEADLOCK;
+      }
+      continue;
+    }
+
+    curr_section_idx = __shfl_sync(__activemask(), curr_section_idx, 0);
+    SectionMD curr_section_md = _section_metadata[curr_section_idx];
+    unsigned ballot_sum = __popc(ballot);
+
+    if (curr_section_md.resv_end < curr_section_md.resv_start) {
+      curr_section_md.resv_end += _section_capacity;
+    }
+    unsigned old_resv_end = curr_section_md.resv_end;
+    curr_section_md.resv_end += ballot_sum;
+
+    if (curr_section_md.resv_end - curr_section_md.resv_start >=
+        _section_capacity) {
+      curr_section_md.resv_end = curr_section_md.resv_start + _section_capacity;
+      curr_section_md.full = true;
+      if (lane_id == 0) {
+        atomicAdd(&_num_full_sections, 1);
+      }
+    }
+    ballot_sum = curr_section_md.resv_end - old_resv_end;
+    curr_section_md.resv_end %= _section_capacity;
+    old_resv_end %= _section_capacity;
+
+    const unsigned resv_offset = popc_below(ballot, lane_id);
+    if (resv_offset < ballot_sum) {
+      const unsigned section_offset = _section_capacity * curr_section_idx;
+      const unsigned write_offset =
+          (old_resv_end + resv_offset) % _section_capacity;
+      *(_queue + section_offset + write_offset) = *tasks;
+      num_tasks--;
+      tasks++;
+    }
+
+    if (lane_id == 0) {
+      const bool was_empty = old_resv_end == curr_section_md.resv_start;
+      if (was_empty) {
+        atomicAdd(&_num_non_empty_sections, 1);
+      }
+      _section_metadata[curr_section_idx] = curr_section_md;
+      atomicExch(&(_section_metadata[curr_section_idx].busy), 0);
+    }
+  }
+}
+
+template <typename TaskType>
+__device__ PopResult InitialScheduler<TaskType>::pop(
+    TaskType* dst, unsigned* tasks_popped, const unsigned warp_max_tasks,
+    const unsigned block_id, const unsigned thread_id) {
+  if (warp_max_tasks == 0) {
+    *tasks_popped = 0;
+    __syncwarp();
+    return POP_SUCCESS;
+  }
+
+  const unsigned lane_id = thread_id & 31;
+  if (lane_id == 0) {
+    atomicAdd(&_num_warps_reading, 1);
+  }
+
+  unsigned read_section =
+      align_up<unsigned>(_num_sections, _num_blocks) + block_id;
+  SectionMD curr_section_md;
+  while (true) {
+    read_section = (read_section + _num_blocks) % _num_sections;
+
+    bool section_busy = false;
+    if (lane_id == 0) {
+      section_busy = atomicExch(&(_section_metadata[read_section].busy), 1);
+    }
+
+    section_busy = __shfl_sync(__activemask(), section_busy, 0);
+    if (section_busy) {
+      continue;
+    }
+
+    curr_section_md = _section_metadata[read_section];
+    const bool empty =
+        (curr_section_md.resv_start == curr_section_md.resv_end) &&
+        !curr_section_md.full;
+    if (empty) {
+      if (lane_id == 0) {
+        section_busy = atomicExch(&(_section_metadata[read_section].busy), 0);
+      }
+      if (_num_non_empty_sections == 0 && _num_warps_reading == _num_warps) {
+        __syncwarp();
+        return POP_DONE;
+      }
+      continue;
+    }
+    break;
+  }
+
+  unsigned available_tasks = 0;
+  if (curr_section_md.full) {
+    available_tasks = _section_capacity;
+  } else {
+    const unsigned unwrapped_end = curr_section_md.resv_end + _section_capacity;
+    available_tasks =
+        (unwrapped_end - curr_section_md.resv_start) % _section_capacity;
+  }
+  *tasks_popped = min(warp_max_tasks, available_tasks);
+  *tasks_popped = min(*tasks_popped, warpSize);
+
+  if (lane_id < *tasks_popped) {
+    const unsigned section_offset = _section_capacity * read_section;
+    const unsigned read_offset =
+        (curr_section_md.resv_start + lane_id) % _section_capacity;
+    *(dst + lane_id) = *(_queue + section_offset + read_offset);
+  }
+  curr_section_md.resv_start =
+      (curr_section_md.resv_start + *tasks_popped) % _section_capacity;
+
+  if (lane_id == 0) {
+    if (curr_section_md.full) {
+      atomicSub(&_num_full_sections, 1);
+    }
+    curr_section_md.full = false;
+    if (curr_section_md.resv_start == curr_section_md.resv_end) {
+      atomicSub(&_num_non_empty_sections, 1);
+    }
+    _section_metadata[read_section] = curr_section_md;
+    atomicExch(&(_section_metadata[read_section].busy), 0);
+    atomicSub(&_num_warps_reading, 1);
+  }
+
+  __syncwarp();
+  return POP_SUCCESS;
+}

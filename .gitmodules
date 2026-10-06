@@ -1,0 +1,3 @@
+[submodule "MLMQ"]
+	path = MLMQ
+	url = https://github.com/Leo9660/MLMQ.git

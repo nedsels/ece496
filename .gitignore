@@ -1,0 +1,8 @@
+/bin/
+/graphs/inputs/*
+!/graphs/inputs/test/
+/.devcontainer/
+**/CMakeCache.txt
+**/CMakeFiles/
+**/cmake_install.cmake
+**/Makefile
