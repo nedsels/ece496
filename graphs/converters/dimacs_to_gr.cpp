@@ -41,13 +41,16 @@ struct Arc {
 static bool parse_arc(const char* p, Arc& arc) {
   char* end;
   arc.u = std::strtoull(p, &end, 10);
-  if (end == p) return false;
+  if (end == p)
+    return false;
   p = end;
   arc.v = std::strtoull(p, &end, 10);
-  if (end == p) return false;
+  if (end == p)
+    return false;
   p = end;
   arc.w = std::strtoull(p, &end, 10);
-  if (end == p) arc.w = 1;  // no weight field
+  if (end == p)
+    arc.w = 1; // no weight field
   return true;
 }
 
@@ -57,13 +60,15 @@ int main(int argc, char** argv) {
                  argv[0]);
     return 1;
   }
-  if (!is_little_endian()) die("big-endian hosts are not supported");
+  if (!is_little_endian())
+    die("big-endian hosts are not supported");
 
   const char* in_path = argv[1];
   const char* out_path = argv[2];
 
   std::FILE* in = std::fopen(in_path, "r");
-  if (!in) die("cannot open input file");
+  if (!in)
+    die("cannot open input file");
 
   char* line = nullptr;
   std::size_t cap = 0;
@@ -72,13 +77,14 @@ int main(int argc, char** argv) {
   // ---------------- pass 1: header + out-degree counts ----------------
   std::uint64_t n = 0, m_header = 0;
   bool have_header = false;
-  std::vector<std::uint64_t> cursor;  // degrees now, offsets later
+  std::vector<std::uint64_t> cursor; // degrees now, offsets later
   std::uint64_t m = 0;
   unsigned long long lineno = 0;
 
   while ((len = getline(&line, &cap, in)) != -1) {
     ++lineno;
-    if (len == 0) continue;
+    if (len == 0)
+      continue;
     if (line[0] == 'p') {
       char kind[32];
       unsigned long long nn, mm;
@@ -89,18 +95,22 @@ int main(int argc, char** argv) {
       have_header = true;
       cursor.assign(n, 0);
     } else if (line[0] == 'a') {
-      if (!have_header) die("'a' line before 'p' line", lineno);
+      if (!have_header)
+        die("'a' line before 'p' line", lineno);
       Arc arc;
-      if (!parse_arc(line + 1, arc)) die("malformed 'a' line", lineno);
+      if (!parse_arc(line + 1, arc))
+        die("malformed 'a' line", lineno);
       if (arc.u < 1 || arc.u > n || arc.v < 1 || arc.v > n)
         die("node id out of range 1..N", lineno);
-      if (arc.w > 0xFFFFFFFFull) die("weight does not fit in 32 bits", lineno);
+      if (arc.w > 0xFFFFFFFFull)
+        die("weight does not fit in 32 bits", lineno);
       ++cursor[arc.u - 1];
       ++m;
     }
     // 'c' and anything else: ignored
   }
-  if (!have_header) die("no 'p' line found");
+  if (!have_header)
+    die("no 'p' line found");
   if (m != m_header)
     std::fprintf(stderr,
                  "Warning: header says %llu arcs but found %llu; using %llu\n",
@@ -126,9 +136,10 @@ int main(int argc, char** argv) {
   lineno = 0;
   while ((len = getline(&line, &cap, in)) != -1) {
     ++lineno;
-    if (len == 0 || line[0] != 'a') continue;
+    if (len == 0 || line[0] != 'a')
+      continue;
     Arc arc;
-    parse_arc(line + 1, arc);  // already validated in pass 1
+    parse_arc(line + 1, arc); // already validated in pass 1
     const std::uint64_t pos = cursor[arc.u - 1]++;
     dst[pos] = static_cast<std::uint32_t>(arc.v - 1);
     wt[pos] = static_cast<std::uint32_t>(arc.w);
@@ -139,19 +150,25 @@ int main(int argc, char** argv) {
 
   // ---------------- write binary file ----------------
   std::FILE* out = std::fopen(out_path, "wb");
-  if (!out) die("cannot open output file");
+  if (!out)
+    die("cannot open output file");
 
   const std::uint64_t header[4] = {1, sizeof(std::uint32_t), n, m};
   bool ok = std::fwrite(header, sizeof(header), 1, out) == 1;
-  if (n) ok = ok && std::fwrite(cursor.data(), 8, n, out) == n;
-  if (m) ok = ok && std::fwrite(dst.data(), 4, m, out) == m;
+  if (n)
+    ok = ok && std::fwrite(cursor.data(), 8, n, out) == n;
+  if (m)
+    ok = ok && std::fwrite(dst.data(), 4, m, out) == m;
   if (m % 2) {
     const std::uint32_t pad = 0;
     ok = ok && std::fwrite(&pad, 4, 1, out) == 1;
   }
-  if (m) ok = ok && std::fwrite(wt.data(), 4, m, out) == m;
-  if (std::fclose(out) != 0) ok = false;
-  if (!ok) die("failed while writing output file");
+  if (m)
+    ok = ok && std::fwrite(wt.data(), 4, m, out) == m;
+  if (std::fclose(out) != 0)
+    ok = false;
+  if (!ok)
+    die("failed while writing output file");
 
   const unsigned long long expected =
       8ull * (4 + n) + 4ull * (m + (m & 1)) + 4ull * m;

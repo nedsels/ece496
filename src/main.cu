@@ -32,7 +32,11 @@ int run_benchmark(const char* graph_path, const char* source_text,
     return 1;
   }
   const Vertex source = static_cast<Vertex>(source_value);
-  h_graph.copy_to_gpu(d_graph);
+  if (!h_graph.copy_to_gpu(d_graph)) {
+    std::cerr << "Copying graph to GPU failed.\n";
+    h_graph.dealloc();
+    return 1;
+  }
 
   // Allocate and initialize the benchmark's host/device working buffers.
   Benchmark benchmark;
@@ -68,7 +72,7 @@ int run_benchmark(const char* graph_path, const char* source_text,
           scheduler_impl.init(scheduler_byte_capacity, num_blocks, num_warps);
           auto* d_scheduler = scheduler_impl.device_setup(prop);
           if (d_scheduler == nullptr ||
-              !benchmark.solve(&d_graph, source, d_scheduler, num_blocks,
+              !benchmark.solve(d_graph, source, d_scheduler, num_blocks,
                                warps_per_block * prop.warpSize) ||
               !benchmark.copy_to_host()) {
             result = 1;
@@ -77,7 +81,7 @@ int run_benchmark(const char* graph_path, const char* source_text,
         },
         h_scheduler);
 
-        benchmark.print_distances();
+    benchmark.print_distances();
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     result = 1;

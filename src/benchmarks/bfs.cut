@@ -12,7 +12,7 @@
 #include <iostream>
 
 template <typename GraphType, typename SchedulerType>
-static __global__ void bfs_kernel(GraphType* graph,
+static __global__ void bfs_kernel(GraphType graph,
                                   typename GraphType::index_type source,
                                   unsigned* dist, SchedulerType* scheduler);
 
@@ -32,27 +32,29 @@ unsigned BFS<GraphType>::setup() {
   }
 
   memset(h_distances, 0xff, distances_bytes);
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_distances), distances_bytes));
+  CUDA_CHECK(
+      cudaMalloc(reinterpret_cast<void**>(&d_distances), distances_bytes));
 
   return 1;
 }
 
 template <typename GraphType>
 unsigned BFS<GraphType>::copy_to_device() {
-  CUDA_CHECK(cudaMemcpy(d_distances, h_distances, distances_bytes, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(d_distances, h_distances, distances_bytes,
+                        cudaMemcpyHostToDevice));
   return 1;
 }
 
 template <typename GraphType>
 unsigned BFS<GraphType>::copy_to_host() {
   CUDA_CHECK(cudaMemcpy(h_distances, d_distances, distances_bytes,
-                 cudaMemcpyDeviceToHost));
+                        cudaMemcpyDeviceToHost));
   return 1;
 }
 
 template <typename GraphType>
 template <typename SchedulerType>
-unsigned BFS<GraphType>::solve(GraphType* d_graph, index_type source,
+unsigned BFS<GraphType>::solve(GraphType d_graph, index_type source,
                                SchedulerType* d_scheduler, unsigned grid_size,
                                unsigned block_size) {
   bfs_kernel<<<grid_size, block_size>>>(d_graph, source, d_distances,
@@ -79,7 +81,7 @@ unsigned BFS<GraphType>::dealloc() {
 }
 
 template <typename GraphType, typename SchedulerType>
-static __global__ void bfs_kernel(GraphType* graph,
+static __global__ void bfs_kernel(GraphType graph,
                                   typename GraphType::index_type source,
                                   unsigned* dist, SchedulerType* scheduler) {
   const unsigned thread_id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -88,10 +90,13 @@ static __global__ void bfs_kernel(GraphType* graph,
   using task_type = typename BFS<GraphType>::TaskType;
   using index_type = typename GraphType::index_type;
 
+  task_type source_task = {source, 0};
+  unsigned num_tasks = 0;
   if (thread_id == 0) {
-    task_type source_task{source, 0};
-    scheduler->push(&source_task, 1, thread_id);
+    atomicExch(&(dist[source]), 0);
+    num_tasks = 1;
   }
+  scheduler->push(&source_task, num_tasks, thread_id);
 
   task_type task;
   unsigned tasks_read;
@@ -100,19 +105,18 @@ static __global__ void bfs_kernel(GraphType* graph,
     task_type* new_tasks = nullptr;
     unsigned num_new_tasks = 0;
     if (lane_id < tasks_read) {
-      auto v = task.item;
-      auto prev_dist = task.priority;
-      auto curr_dist = dist[v];
-      auto degree = graph->getOutDegree(v);
-      if (curr_dist > prev_dist && degree > 0) {
-        num_new_tasks = degree;
-        new_tasks = (task_type*)malloc(num_new_tasks * sizeof(task_type));
-        index_type e_start = graph->getFirstEdge(v);
-        index_type e_end = e_start + degree;
-        for (index_type e = e_start; e < e_end; e++) {
-          atomicMin(dist + v, curr_dist + 1);
-          task_type nbr{graph->getDestination(v, e), curr_dist + 1};
-          new_tasks[e - e_start] = nbr;
+      index_type v = task.item;
+      unsigned prev_dist = task.priority;
+      unsigned curr_dist = dist[v];
+      index_type degree = graph.getOutDegree(v);
+      if (curr_dist >= prev_dist && degree > 0) {
+        new_tasks = (task_type*)malloc(degree * sizeof(task_type));
+        for (index_type e_rel = 0; e_rel < degree; e_rel++) {
+          index_type nbr = graph.getDestination(v, e_rel);
+          unsigned new_dist = curr_dist + 1;
+          if (atomicMin(dist + nbr, new_dist) > new_dist) {
+            new_tasks[num_new_tasks++] = {nbr, new_dist};
+          }
         }
       }
     }

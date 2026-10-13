@@ -21,7 +21,7 @@ struct BFS {
 
   // Run BFS on d_graph.
   template <typename SchedulerType>
-  unsigned solve(GraphType* d_graph, index_type source,
+  unsigned solve(GraphType d_graph, index_type source,
                  SchedulerType* d_scheduler, unsigned grid_size,
                  unsigned block_size);
 
