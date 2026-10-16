@@ -153,12 +153,14 @@ __device__ PushResult InitialScheduler<TaskType>::push(
       tasks++;
     }
 
+    __syncwarp();
     if (lane_id == 0) {
       const bool was_empty = old_resv_end == curr_section_md.resv_start;
       if (was_empty) {
         atomicAdd(&_num_non_empty_sections, 1);
       }
       _section_metadata[curr_section_idx] = curr_section_md;
+      __threadfence();
       atomicExch(&(_section_metadata[curr_section_idx].busy), 0);
     }
   }
@@ -236,6 +238,7 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
   curr_section_md.resv_start =
       (curr_section_md.resv_start + *tasks_popped) % _section_capacity;
 
+  __syncwarp();
   if (lane_id == 0) {
     if (curr_section_md.full) {
       atomicSub(&_num_full_sections, 1);
@@ -245,6 +248,7 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
       atomicSub(&_num_non_empty_sections, 1);
     }
     _section_metadata[read_section] = curr_section_md;
+    __threadfence();
     atomicExch(&(_section_metadata[read_section].busy), 0);
     atomicSub(&_num_warps_reading, 1);
   }

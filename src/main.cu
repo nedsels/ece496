@@ -62,9 +62,11 @@ int run_benchmark(const char* graph_path, const char* source_text,
         static_cast<unsigned>(free_bytes / 2);
 
     // HYPERPARAMETER
-    // Use one block per SM and the maximum number of warps per block.
-    const unsigned num_blocks = prop.multiProcessorCount;
-    const unsigned warps_per_block = prop.maxThreadsPerBlock / prop.warpSize;
+    // Use one block per half of SMs and half the maximum number of warps per
+    // block (also arbitrary)
+    const unsigned num_blocks = prop.multiProcessorCount / 2;
+    const unsigned warps_per_block =
+        prop.maxThreadsPerBlock / prop.warpSize / 2;
     const unsigned num_warps = warps_per_block * num_blocks;
 
     std::visit(

@@ -59,6 +59,7 @@ unsigned BFS<GraphType>::solve(GraphType d_graph, index_type source,
                                unsigned block_size) {
   bfs_kernel<<<grid_size, block_size>>>(d_graph, source, d_distances,
                                         d_scheduler);
+  CUDA_CHECK(cudaGetLastError());
   CUDA_CHECK(cudaDeviceSynchronize());
   return 1;
 }
@@ -121,8 +122,11 @@ static __global__ void bfs_kernel(GraphType graph,
       }
     }
     if (scheduler->push(new_tasks, num_new_tasks, thread_id) == PUSH_DEADLOCK) {
-      printf("Dealock\n");
+      printf("Deadlock\n");
       assert(false);
+    }
+    if (new_tasks != nullptr) {
+      free(new_tasks);
     }
   }
 }
