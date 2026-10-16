@@ -2,22 +2,31 @@
 #include <graph/csr_graph.cuh>
 #include <scheduler/scheduler.cuh>
 
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <cuda_runtime.h>
 #include <iostream>
 
+// Optional flags given after the positional arguments.
+struct RunOptions {
+  const char* out_path = nullptr;  // --out FILE: write distances as raw uint32
+  bool print_time = false;         // --time: print timing as one JSON line
+};
+
 // TODO create Benchmark std::variants
 template <template <typename> class BenchmarkTemplate, typename WeightType>
 int run_benchmark(const char* graph_path, const char* source_text,
-                  SchedulerType scheduler_choice, const cudaDeviceProp& prop) {
+                  SchedulerType scheduler_choice, const cudaDeviceProp& prop,
+                  const RunOptions& options) {
   using GraphType = CSRGraph<WeightType>;
   using Benchmark = BenchmarkTemplate<GraphType>;
   using TaskType = typename Benchmark::TaskType;
   using Vertex = typename GraphType::index_type;
 
   // Load the graph into host memory and create its device copy.
+  const auto load_start = std::chrono::steady_clock::now();
   GraphType h_graph, d_graph;
   h_graph.init();
   if (h_graph.readFromGR(graph_path) != 0) {
@@ -37,6 +46,9 @@ int run_benchmark(const char* graph_path, const char* source_text,
     h_graph.dealloc();
     return 1;
   }
+  const double load_ms = std::chrono::duration<double, std::milli>(
+                             std::chrono::steady_clock::now() - load_start)
+                             .count();
 
   // Allocate and initialize the benchmark's host/device working buffers.
   Benchmark benchmark;
@@ -81,7 +93,19 @@ int run_benchmark(const char* graph_path, const char* source_text,
         },
         h_scheduler);
 
-    benchmark.print_distances();
+    if (result == 0) {
+      if (options.out_path != nullptr) {
+        if (!benchmark.write_distances(options.out_path)) {
+          result = 1;
+        }
+      } else {
+        benchmark.print_distances();
+      }
+      if (options.print_time) {
+        std::cout << "{\"kernel_ms\": " << benchmark.kernel_ms
+                  << ", \"load_ms\": " << load_ms << "}" << std::endl;
+      }
+    }
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     result = 1;
@@ -96,10 +120,25 @@ int run_benchmark(const char* graph_path, const char* source_text,
 int main(int argc, char* argv[]) {
   if (argc < 6) {
     std::cerr << "Usage: " << argv[0]
-              << " <benchmark> <graph.gr> <source> <weight-type> <scheduler>\n"
+              << " <benchmark> <graph.gr> <source> <weight-type> <scheduler>"
+                 " [--out FILE] [--time]\n"
               << "benchmark: bfs\n"
-              << "weight-type: int32, uint32, float32\n";
+              << "weight-type: int32, uint32, float32\n"
+              << "--out FILE: write distances to FILE as raw uint32 values\n"
+              << "--time: print {\"kernel_ms\": ..., \"load_ms\": ...}\n";
     return 1;
+  }
+
+  RunOptions options;
+  for (int i = 6; i < argc; i++) {
+    if (std::strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
+      options.out_path = argv[++i];
+    } else if (std::strcmp(argv[i], "--time") == 0) {
+      options.print_time = true;
+    } else {
+      std::cerr << "Unknown or incomplete option: " << argv[i] << '\n';
+      return 1;
+    }
   }
 
   cudaDeviceProp prop;
@@ -114,15 +153,15 @@ int main(int argc, char* argv[]) {
     const SchedulerType scheduler_choice = from_string(argv[5]);
     if (std::strcmp(argv[4], "int32") == 0) {
       return run_benchmark<BFS, std::int32_t>(argv[2], argv[3],
-                                              scheduler_choice, prop);
+                                              scheduler_choice, prop, options);
     }
     if (std::strcmp(argv[4], "uint32") == 0) {
       return run_benchmark<BFS, std::uint32_t>(argv[2], argv[3],
-                                               scheduler_choice, prop);
+                                               scheduler_choice, prop, options);
     }
     if (std::strcmp(argv[4], "float32") == 0) {
       return run_benchmark<BFS, float>(argv[2], argv[3], scheduler_choice,
-                                       prop);
+                                       prop, options);
     }
     std::cerr << "Unsupported weight type: " << argv[4] << '\n';
     return 1;
