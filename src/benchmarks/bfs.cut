@@ -105,6 +105,7 @@ static __global__ void bfs_kernel(GraphType graph,
          POP_DONE) {
     task_type* new_tasks = nullptr;
     unsigned num_new_tasks = 0;
+    // pop() writes to the lowest lanes
     if (lane_id < tasks_read) {
       index_type v = task.item;
       unsigned prev_dist = task.priority;

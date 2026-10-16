@@ -8,7 +8,9 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
-// TODO create Benchmark std::variants
+// TODO: create Benchmark std::variants. Today we have scheduler variants, but
+// what we want is for the benchmark to be chosen at runtime but the scheduler
+// to be chosen at compile time.
 template <template <typename> class BenchmarkTemplate, typename WeightType>
 int run_benchmark(const char* graph_path, const char* source_text,
                   SchedulerType scheduler_choice, const cudaDeviceProp& prop) {
@@ -53,13 +55,12 @@ int run_benchmark(const char* graph_path, const char* source_text,
     Scheduler<TaskType> h_scheduler = get_scheduler<TaskType>(scheduler_choice);
 
     // HYPERPARAMETER
-    // Reserve half of free VRAM (arbitrary, should be chosen more
-    // intelligently)
+    // Reserve 1/8 of free VRAM (completely arbitrary)
     std::size_t free_bytes = 0;
     std::size_t total_bytes = 0;
     CUDA_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
     const unsigned scheduler_byte_capacity =
-        static_cast<unsigned>(free_bytes / 2);
+        static_cast<unsigned>(free_bytes / 8);
 
     // HYPERPARAMETER
     // Use one block per half of SMs and half the maximum number of warps per
@@ -96,7 +97,7 @@ int run_benchmark(const char* graph_path, const char* source_text,
 }
 
 int main(int argc, char* argv[]) {
-  if (argc < 6) {
+  if (argc != 6) {
     std::cerr << "Usage: " << argv[0]
               << " <benchmark> <graph.gr> <source> <weight-type> <scheduler>\n"
               << "benchmark: bfs\n"

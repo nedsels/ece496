@@ -4,8 +4,17 @@
 #include <scheduler/enum.cuh>
 
 // HYPERPARAMTERS
-#define NUM_SECTIONS 1
+#define NUM_SECTIONS 32
 
+// This scheduler has _num_sections sections which are independent circular
+// buffers over which tasks are distributed. For pops, the sections map to
+// blocks in a round-robin pattern; block_id = section_id % _num_blocks. For
+// pushes, we have a global _write_section variable which is atomically
+// incremented so that the next writer writes the next section. push() and pop()
+// are warp-local and must be called by the entire warp. Each operation is
+// blocking, ie. a section cannot be read from and written to concurrently.
+// push() supports multiple tasks per thread. This is to avoid choosing a
+// framework just yet (eg. Gunrock's FILTER step could simplify this)
 template <typename TaskType>
 class InitialScheduler {
 public:
@@ -21,14 +30,20 @@ public:
   // Dealloc the scheduler on device.
   unsigned device_dealloc();
 
-  // Push a warp's tasks to the queue.
+  // Push a warp's tasks to the queue. Must be called by all threads in a warp.
+  // tasks is a thread-local buffer of num_tasks
   __device__ PushResult push(TaskType* tasks, unsigned num_tasks,
                              const unsigned thread_id);
 
-  // Pop tasks from the queue for a warp's threads to work on.
-  __device__ PopResult pop(TaskType* dst, unsigned* tasks_read,
-                           const unsigned max_tasks, const unsigned block_id,
-                           const unsigned thread_id);
+  // Pop tasks from the queue for a warp's threads to work on. Must be called by
+  // all threads in a warp. dst is a thread-local destination buffer. At most
+  // one task per thread will be popped, up to warp_max_tasks across the warp.
+  // tasks_popped is the number of tasks popped across the warp; when this is
+  // <32, we pop into the lowest lanes.
+  // TODO: make tasks_popped thread-local (boolean)
+  __device__ PopResult pop(TaskType* dst, unsigned* tasks_popped,
+                           const unsigned warp_max_tasks,
+                           const unsigned block_id, const unsigned thread_id);
 
 private:
   // Common attributes
@@ -54,7 +69,7 @@ private:
   unsigned _write_section;
   unsigned _num_full_sections;
   unsigned _num_warps_writing;
-  unsigned _num_non_empty_sections;
+  unsigned _num_empty_sections;
   unsigned _num_warps_reading;
 };
 
