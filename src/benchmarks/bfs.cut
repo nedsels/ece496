@@ -1,0 +1,133 @@
+#pragma once
+
+#include <common/utils.cuh>
+#include <scheduler/enum.cuh>
+
+#include <cuda_runtime.h>
+
+#include <cassert>
+#include <climits>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+
+template <typename GraphType, typename SchedulerType>
+static __global__ void bfs_kernel(GraphType graph,
+                                  typename GraphType::index_type source,
+                                  unsigned* dist, SchedulerType* scheduler);
+
+template <typename GraphType>
+unsigned BFS<GraphType>::init(GraphType& graph) {
+  nnodes = graph.nnodes;
+  distances_bytes = nnodes * sizeof(unsigned);
+  return 1;
+}
+
+template <typename GraphType>
+unsigned BFS<GraphType>::setup() {
+  h_distances = static_cast<unsigned*>(malloc(distances_bytes));
+  if (h_distances == nullptr) {
+    free(h_distances);
+    return 0;
+  }
+
+  memset(h_distances, 0xff, distances_bytes);
+  CUDA_CHECK(
+      cudaMalloc(reinterpret_cast<void**>(&d_distances), distances_bytes));
+
+  return 1;
+}
+
+template <typename GraphType>
+unsigned BFS<GraphType>::copy_to_device() {
+  CUDA_CHECK(cudaMemcpy(d_distances, h_distances, distances_bytes,
+                        cudaMemcpyHostToDevice));
+  return 1;
+}
+
+template <typename GraphType>
+unsigned BFS<GraphType>::copy_to_host() {
+  CUDA_CHECK(cudaMemcpy(h_distances, d_distances, distances_bytes,
+                        cudaMemcpyDeviceToHost));
+  return 1;
+}
+
+template <typename GraphType>
+template <typename SchedulerType>
+unsigned BFS<GraphType>::solve(GraphType d_graph, index_type source,
+                               SchedulerType* d_scheduler, unsigned grid_size,
+                               unsigned block_size) {
+  bfs_kernel<<<grid_size, block_size>>>(d_graph, source, d_distances,
+                                        d_scheduler);
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
+  return 1;
+}
+
+template <typename GraphType>
+unsigned BFS<GraphType>::print_distances() {
+  std::cout << "Distances by vertex: \n";
+  for (index_type i = 0; i < nnodes; i++) {
+    std::cout << i << ":" << h_distances[i] << " ";
+  }
+  std::cout << std::endl;
+  return 1;
+}
+
+template <typename GraphType>
+unsigned BFS<GraphType>::dealloc() {
+  free(h_distances);
+  cudaFree(d_distances);
+  return 1;
+}
+
+template <typename GraphType, typename SchedulerType>
+static __global__ void bfs_kernel(GraphType graph,
+                                  typename GraphType::index_type source,
+                                  unsigned* dist, SchedulerType* scheduler) {
+  const unsigned thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+  const unsigned lane_id = thread_id & 31;
+
+  using task_type = typename BFS<GraphType>::TaskType;
+  using index_type = typename GraphType::index_type;
+
+  task_type source_task = {source, 0};
+  unsigned num_tasks = 0;
+  if (thread_id == 0) {
+    atomicExch(&(dist[source]), 0);
+    num_tasks = 1;
+  }
+  scheduler->push(&source_task, num_tasks, thread_id);
+
+  task_type task;
+  unsigned tasks_read;
+  while (scheduler->pop(&task, &tasks_read, warpSize, blockIdx.x, thread_id) !=
+         POP_DONE) {
+    task_type* new_tasks = nullptr;
+    unsigned num_new_tasks = 0;
+    // pop() writes to the lowest lanes
+    if (lane_id < tasks_read) {
+      index_type v = task.item;
+      unsigned prev_dist = task.priority;
+      unsigned curr_dist = dist[v];
+      index_type degree = graph.getOutDegree(v);
+      if (curr_dist >= prev_dist && degree > 0) {
+        new_tasks = (task_type*)malloc(degree * sizeof(task_type));
+        for (index_type e_rel = 0; e_rel < degree; e_rel++) {
+          index_type nbr = graph.getDestination(v, e_rel);
+          unsigned new_dist = curr_dist + 1;
+          if (atomicMin(dist + nbr, new_dist) > new_dist) {
+            new_tasks[num_new_tasks++] = {nbr, new_dist};
+          }
+        }
+      }
+    }
+    if (scheduler->push(new_tasks, num_new_tasks, thread_id) == PUSH_DEADLOCK) {
+      printf("Deadlock\n");
+      assert(false);
+    }
+    if (new_tasks != nullptr) {
+      free(new_tasks);
+    }
+  }
+}

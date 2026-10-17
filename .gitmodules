@@ -1,0 +1,9 @@
+[submodule "MLMQ"]
+	path = MLMQ
+	url = https://github.com/Leo9660/MLMQ.git
+[submodule "Galois"]
+	path = Galois
+	url = https://github.com/IntelligentSoftwareSystems/Galois.git
+[submodule "gunrock"]
+	path = gunrock
+	url = https://github.com/gunrock/gunrock.git

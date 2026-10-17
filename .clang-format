@@ -1,0 +1,15 @@
+# Copied from https://github.com/NVIDIA/cuda-quantum/blob/main/.clang-format
+BasedOnStyle: LLVM
+AlwaysBreakTemplateDeclarations: Yes
+IncludeCategories:
+  - Regex:           '^<'
+    Priority:        4
+  - Regex:           '^"(llvm|llvm-c|clang|clang-c|mlir|mlir-c)/'
+    Priority:        3
+  - Regex:           '^"(cudaq|\.\.)/'
+    Priority:        2
+  - Regex:           '.*'
+    Priority:        1
+
+DerivePointerAlignment: false
+PointerAlignment: Left
