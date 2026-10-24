@@ -1,5 +1,6 @@
 #include <benchmarks/bfs.cuh>
 #include <benchmarks/sssp.cuh>
+#include <benchmarks/a_star.cuh>
 #include <graph/csr_graph.cuh>
 #include <scheduler/scheduler.cuh>
 #include <benchmarks/benchmarks.cuh>
@@ -13,10 +14,10 @@
 // TODO: create Benchmark std::variants. Today we have scheduler variants, but
 // what we want is for the benchmark to be chosen at runtime but the scheduler
 // to be chosen at compile time.
-template <template <typename> class BenchmarkTemplate, typename WeightType>
+template <template <typename> class BenchmarkTemplate, typename WeightType, typename NodeDataType>
 Benchmarks::Status run_benchmark(const char* graph_path, const char* source_text,
                   SchedulerType scheduler_choice, const cudaDeviceProp& prop) {
-  using GraphType = CSRGraph<WeightType>;
+  using GraphType = CSRGraph<WeightType, NodeDataType>;
   using Benchmark = BenchmarkTemplate<GraphType>;
   using TaskType = typename Benchmark::TaskType;
   using Vertex = typename GraphType::index_type;
@@ -106,7 +107,11 @@ Benchmarks::Status run_benchmark(const char* graph_path, const char* source_text
 // In the proposal I think we only specify positive weights in the SysR
 // We can also configure valid weight types per algorithm, but floating point needs to 
 // be checked for negative weights
-template <template <typename> class BenchmarkTemplate>
+//
+// NOTE: NodeDataType is currently only needed for A* for coordinates used to compute h score
+// Default this to int for now. When building the graph, the node data is optional and only done if
+// specified in the .gr file
+template <template <typename> class BenchmarkTemplate, typename NodeDataType = std::int32_t>
 int run_with_weight(
   const char* graph_path,
   const char* source_text,
@@ -116,17 +121,17 @@ int run_with_weight(
 ) {
   if (std::strcmp(weight_name, "int32") == 0) {
     return static_cast<int>(
-      run_benchmark<BenchmarkTemplate, std::int32_t>(graph_path, source_text, scheduler_choice, prop)
+      run_benchmark<BenchmarkTemplate, std::int32_t, NodeDataType>(graph_path, source_text, scheduler_choice, prop)
     );
   }
   if (std::strcmp(weight_name, "uint32") == 0) {
     return static_cast<int>(
-      run_benchmark<BenchmarkTemplate, std::uint32_t>(graph_path, source_text, scheduler_choice, prop)
+      run_benchmark<BenchmarkTemplate, std::uint32_t, NodeDataType>(graph_path, source_text, scheduler_choice, prop)
     );
   }
   if (std::strcmp(weight_name, "float32") == 0) {
     return static_cast<int>(
-      run_benchmark<BenchmarkTemplate, float>(graph_path, source_text, scheduler_choice, prop)
+      run_benchmark<BenchmarkTemplate, float, NodeDataType>(graph_path, source_text, scheduler_choice, prop)
     );
   }
   std::cerr << "Unsupported weight type: " << weight_name << '\n';
@@ -137,7 +142,7 @@ int main(int argc, char* argv[]) {
   if (argc != 6) {
     std::cerr << "Usage: " << argv[0]
               << " <benchmark> <graph.gr> <source> <weight-type> <scheduler>\n"
-              << "benchmark: bfs sssp\n"
+              << "benchmark: bfs sssp a*\n"
               << "weight-type: int32, uint32, float32\n"
               << "scheduler: initial_scheduler\n";
     return 1;
@@ -155,6 +160,10 @@ int main(int argc, char* argv[]) {
     if (std::strcmp(argv[1], "sssp") == 0) {
       return run_with_weight<SSSP>(argv[2], argv[3], argv[4], scheduler_choice, prop);
     }
+    if (std::strcmp(argv[1], "a*") == 0) {
+      return run_with_weight<A_STAR, std::pair<std::int32_t, std::int32_t>>(argv[2], argv[3], argv[4], scheduler_choice, prop);
+    }
+
     std::cerr << "Unsupported benchmark: " << argv[1] << '\n';
     return 1;
   } catch (const std::exception& error) {
