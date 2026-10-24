@@ -1,0 +1,159 @@
+#pragma once
+
+#include <common/utils.cuh>
+#include <scheduler/enum.cuh>
+#include <benchmarks/benchmarks.cuh>
+
+#include <cuda_runtime.h>
+
+#include <cassert>
+#include <climits>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+
+template <typename GraphType, typename SchedulerType>
+static __global__ void sssp_kernel(
+    GraphType graph, typename GraphType::index_type source, unsigned* dist, SchedulerType* scheduler
+);
+
+template <typename GraphType>
+Benchmarks::Status SSSP<GraphType>::init(GraphType& graph) {
+    if (initialized) {
+        return Benchmarks::Status::ERROR;
+    }
+
+    nnodes = graph.nnodes;
+    distances_bytes = nnodes * sizeof(unsigned);
+
+    // Allocate memory for distances on host
+    h_distances = static_cast<unsigned*>(malloc(distances_bytes));
+    if (h_distances == nullptr) {
+        free(h_distances);
+        return Benchmarks::Status::ERROR;
+    }
+
+    memset(h_distances, 0xff, distances_bytes);
+    // Allocate memory on device
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void**>(&d_distances), distances_bytes)
+    );
+
+    initialized = true;
+
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType>
+Benchmarks::Status SSSP<GraphType>::copy_to_device() {
+    CUDA_CHECK(cudaMemcpy(d_distances, h_distances, distances_bytes,
+                        cudaMemcpyHostToDevice));
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType>
+Benchmarks::Status SSSP<GraphType>::copy_to_host() {
+    CUDA_CHECK(cudaMemcpy(h_distances, d_distances, distances_bytes,
+                        cudaMemcpyDeviceToHost));
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType>
+template <typename SchedulerType>
+Benchmarks::Status SSSP<GraphType>::solve(
+    GraphType d_graph, index_type source,
+    SchedulerType* d_scheduler, unsigned grid_size,
+    unsigned block_size
+) {
+    sssp_kernel<<<grid_size, block_size>>>(
+        d_graph, source, d_distances, d_scheduler
+    );
+
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType>
+void SSSP<GraphType>::print_distances() {
+    std::cout << "Distances by vertex: \n";
+    for (index_type i = 0; i < nnodes; i++) {
+    std::cout << i << ":" << h_distances[i] << " ";
+    }
+    std::cout << std::endl;
+}
+
+template <typename GraphType>
+Benchmarks::Status SSSP<GraphType>::dealloc() {
+    free(h_distances);
+    cudaFree(d_distances);
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType, typename SchedulerType>
+static __global__ void sssp_kernel(
+    GraphType graph, typename GraphType::index_type source,
+    unsigned* dist, SchedulerType* scheduler
+) {
+    const unsigned thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+    // Position in warp -- lane 0 - 31
+    const unsigned lane_id = threadIdx.x & 31; /* % 32 */
+
+    using task_type = typename SSSP<GraphType>::TaskType;
+    using index_type = typename GraphType::index_type;
+
+    task_type source_task = {source, 0};
+    unsigned num_tasks = 0;
+    if (thread_id == 0) {
+        atomicExch(&(dist[source]), 0);
+        num_tasks = 1;
+    }
+    // Only thread 0 is really pushing a task here, but all threads must call since they are in lock step
+    scheduler->push(&source_task, num_tasks, lane_id);
+
+    task_type task;
+    unsigned tasks_read;
+    // Terminates when all sections are empty (i.e. no tasks left)
+    // TODO: This is bad for work balancing since work is distributed by vertex rather than edges
+    // The task should be associated to the edge rather than the vertex
+    // Task for each edge means that the work done by the thread is a single edge relaxation rather than O(degree)
+    // Consider a power law graph. One vertex can have a degree in the thousands while others have <10.
+    while (scheduler->pop(&task, &tasks_read, warpSize, blockIdx.x, lane_id) != POP_DONE) {
+        task_type* new_tasks = nullptr;
+        unsigned num_new_tasks = 0;
+        // pop() writes to the lowest lanes
+        if (lane_id < tasks_read) {
+            index_type v = task.item;
+            unsigned task_dist = task.priority;
+            unsigned best_dist = dist[v];
+            const index_type degree = graph.getOutDegree(v);
+            // This task is the best distance found
+            // Create tasks for each neighbour to traverse to
+            if (task_dist == best_dist && degree > 0) {
+                new_tasks = (task_type*)malloc(degree * sizeof(task_type));
+                for (index_type e_rel = 0; e_rel < degree; e_rel++) {
+                    index_type nbr = graph.getDestination(v, e_rel);
+                    // dist(v) = dist(u) + weight(u, v) for u --> v
+                    // Assumes NO negative weights
+                    const auto w = graph.getWeight(v, e_rel);
+                    assert(w >= 0);
+                    unsigned new_dist = task_dist + w;
+                    // Update distance vector
+                    // Uphold invariant that if the task is scheduled, the node has a distance calculated
+                    // Atomic guarantees we only create task if we found something better at this instant
+                    if (atomicMin(dist + nbr, new_dist) > new_dist) {
+                        new_tasks[num_new_tasks++] = {nbr, new_dist};
+                    }
+                }
+            }
+        }
+        // Push synchronizes so all threads synced after this call
+        if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
+            printf("Deadlock\n");
+            assert(false);
+        }
+        if (new_tasks != nullptr) {
+            free(new_tasks);
+        }
+    }
+}

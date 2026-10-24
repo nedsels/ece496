@@ -79,8 +79,7 @@ unsigned InitialScheduler<TaskType>::device_dealloc() {
 
 template <typename TaskType>
 __device__ PushResult InitialScheduler<TaskType>::push(
-    TaskType* tasks, unsigned num_tasks, const unsigned thread_id) {
-  const unsigned lane_id = thread_id & 31;
+    TaskType* tasks, unsigned num_tasks, const unsigned lane_id) {
 
   // Used for deadlock detection
   if (lane_id == 0) {
@@ -202,7 +201,7 @@ __device__ PushResult InitialScheduler<TaskType>::push(
 template <typename TaskType>
 __device__ PopResult InitialScheduler<TaskType>::pop(
     TaskType* dst, unsigned* tasks_popped, const unsigned warp_max_tasks,
-    const unsigned block_id, const unsigned thread_id) {
+    const unsigned block_id, const unsigned lane_id) {
   // All lanes should pass in the same warp_max_tasks
   const unsigned warp_max_tasks_l0 = __shfl_sync(FULL_MASK, warp_max_tasks, 0);
   assert(warp_max_tasks == warp_max_tasks_l0);
@@ -213,8 +212,6 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
     __syncwarp();
     return POP_SUCCESS;
   }
-
-  const unsigned lane_id = thread_id & 31;
 
   // Used to detect completion
   if (lane_id == 0) {
