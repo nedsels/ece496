@@ -2,11 +2,8 @@
 
 #include <common/utils.cuh>
 
-<<<<<<< HEAD
-=======
 #include <cassert>
 
->>>>>>> origin/main
 template <typename TaskType>
 unsigned InitialScheduler<TaskType>::init(const unsigned byte_capacity,
                                           const unsigned num_blocks,
@@ -22,11 +19,7 @@ unsigned InitialScheduler<TaskType>::init(const unsigned byte_capacity,
   _write_section = 0;
   _num_full_sections = 0;
   _num_warps_writing = 0;
-<<<<<<< HEAD
-  _num_non_empty_sections = 0;
-=======
   _num_empty_sections = _num_sections;
->>>>>>> origin/main
   _num_warps_reading = 0;
 
   return 1;
@@ -35,12 +28,9 @@ unsigned InitialScheduler<TaskType>::init(const unsigned byte_capacity,
 template <typename TaskType>
 InitialScheduler<TaskType>*
 InitialScheduler<TaskType>::device_setup(const cudaDeviceProp& prop) {
-<<<<<<< HEAD
-=======
   // TODO: instead of carving up _d_alloc, determine how much memory we can
   // reserve for _queue, then use cudaMalloc for everything
 
->>>>>>> origin/main
   CUDA_CHECK(cudaMalloc((void**)&_d_alloc, _byte_capacity));
   char* curr = _d_alloc;
   CUDA_CHECK(cudaMemset(curr, 0, _byte_capacity));
@@ -91,26 +81,18 @@ template <typename TaskType>
 __device__ PushResult InitialScheduler<TaskType>::push(
     TaskType* tasks, unsigned num_tasks, const unsigned thread_id) {
   const unsigned lane_id = thread_id & 31;
-<<<<<<< HEAD
-=======
 
   // Used for deadlock detection
->>>>>>> origin/main
   if (lane_id == 0) {
     atomicAdd(&_num_warps_writing, 1);
   }
 
-<<<<<<< HEAD
-  PushResult result = PUSH_FAILURE;
-  while (true) {
-=======
   // Each thread has num_tasks to push. In each iteration of the loop, if we can
   // write to the section, each lane writes 1 task if it has any left. Then,
   // decrement num_tasks, and increment the tasks pointer
   PushResult result = PUSH_FAILURE;
   while (true) {
     // If no lanes have tasks remaining, the push is done
->>>>>>> origin/main
     unsigned ballot = __ballot_sync(FULL_MASK, num_tasks);
     if (ballot == 0) {
       if (lane_id == 0) {
@@ -124,43 +106,29 @@ __device__ PushResult InitialScheduler<TaskType>::push(
     bool section_busy = false;
     bool section_full = false;
     if (lane_id == 0) {
-<<<<<<< HEAD
-      if (_num_sections > 1) {
-        curr_section_idx = atomicInc(&_write_section, _num_sections - 1);
-=======
       // The next warp to push will write to the next section
       if (_num_sections > 1) {
         curr_section_idx = atomicInc(&_write_section, _num_sections - 1);
         assert(curr_section_idx < _num_sections);
->>>>>>> origin/main
       }
       section_busy = atomicExch(&(_section_metadata[curr_section_idx].busy), 1);
       section_full = _section_metadata[curr_section_idx].full;
     }
 
-<<<<<<< HEAD
-=======
     // If section is busy reading, try again
->>>>>>> origin/main
     section_busy = __shfl_sync(FULL_MASK, section_busy, 0);
     if (section_busy) {
       continue;
     }
 
-<<<<<<< HEAD
-=======
     // If section is full, release the section. Check if both all sections are
     // full and all warps are writing, in which case we are deadlocked.
->>>>>>> origin/main
     section_full = __shfl_sync(FULL_MASK, section_full, 0);
     if (section_full) {
       if (lane_id == 0) {
         section_busy =
             atomicExch(&(_section_metadata[curr_section_idx].busy), 0);
-<<<<<<< HEAD
-=======
         assert(section_busy);
->>>>>>> origin/main
       }
       if (_num_full_sections == _num_sections &&
           _num_warps_writing == _num_warps) {
