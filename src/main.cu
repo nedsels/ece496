@@ -11,16 +11,93 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
+namespace {
+
+template <template <typename> class BenchmarkTemplate, typename WeightType, typename NodeDataType>
+Benchmarks::Status run_benchmark(
+  const char* graph_path, const Benchmarks::BenchmarkConfig& config, SchedulerType scheduler_choice, const cudaDeviceProp& prop
+);
+
+template <template <typename> class BenchmarkTemplate, typename NodeDataType = std::int32_t>
+int run_with_weight(
+  const char* graph_path, const char* weight_name, SchedulerType scheduler_choice, 
+  const cudaDeviceProp& prop, const Benchmarks::BenchmarkConfig& config
+); 
+
+template <typename GraphType>
+bool is_valid_config(const Benchmarks::BenchmarkConfig &config, const GraphType& graph);
+
+} // End anonymous namespace
+
+int main(int argc, char* argv[]) {
+  // NOTE: Put benchmark specific configurations last so first arguments are consistent for all benchmarks
+  // This doesn't check if the user provides the correct number of arguments for a given benchmark
+  if (argc != 6 && argc != 7) {
+    std::cerr << "Usage: " << argv[0]
+              << " <bfs/sssp> <graph.gr> <weight-type> <scheduler> <source>\n"
+              << " <a_star> <graph.gr> <weight-type> <scheduler> <source> <destination>\n"
+              << "weight-type: int32, uint32\n"
+              << "scheduler: initial_scheduler\n";
+    return 1;
+  }
+
+  cudaDeviceProp prop;
+  CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+
+  try {
+    const SchedulerType scheduler_choice = from_string(argv[4]);
+
+    if (std::strcmp(argv[1], "bfs") == 0) {
+      const Benchmarks::BenchmarkConfig config = {.source=std::strtol(argv[5], nullptr, 10)};
+      return run_with_weight<BFS>(argv[2], argv[3], scheduler_choice, prop, config);
+    }
+    if (std::strcmp(argv[1], "sssp") == 0) {
+      const Benchmarks::BenchmarkConfig config = {.source=std::strtol(argv[5], nullptr, 10)};
+      return run_with_weight<SSSP>(argv[2], argv[3], scheduler_choice, prop, config);
+    }
+    if (std::strcmp(argv[1], "a_star") == 0) {
+      const Benchmarks::BenchmarkConfig config = {.source=std::strtol(argv[5], nullptr, 10), .destination=std::strtol(argv[6], nullptr, 10)};
+      return run_with_weight<A_STAR, std::pair<std::int32_t, std::int32_t>>(argv[2], argv[3], scheduler_choice, prop, config);
+    }
+
+    std::cerr << "Unsupported benchmark: " << argv[1] << '\n';
+    return 1;
+  } catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
+}
+
+namespace {
+
+template <typename GraphType>
+bool is_valid_config(const Benchmarks::BenchmarkConfig &config, const GraphType& graph) {
+  if (config.source) {
+    const auto source = config.source.value();
+    if (source < 0 || source >= graph.nnodes) {
+      std::cerr << "Source vertex is outside the graph.\n";
+      return false;
+    }
+  }
+  if (config.destination) {
+    const auto dest = config.destination.value();
+    if (dest < 0 || dest >= graph.nnodes) {
+      std::cerr << "Destination vertex is outside the graph.\n";
+      return false;
+    }
+  }
+  return true;
+}
+
 // TODO: create Benchmark std::variants. Today we have scheduler variants, but
 // what we want is for the benchmark to be chosen at runtime but the scheduler
 // to be chosen at compile time.
 template <template <typename> class BenchmarkTemplate, typename WeightType, typename NodeDataType>
-Benchmarks::Status run_benchmark(const char* graph_path, const char* source_text,
+Benchmarks::Status run_benchmark(const char* graph_path, const Benchmarks::BenchmarkConfig& config,
                   SchedulerType scheduler_choice, const cudaDeviceProp& prop) {
   using GraphType = CSRGraph<WeightType, NodeDataType>;
   using Benchmark = BenchmarkTemplate<GraphType>;
   using TaskType = typename Benchmark::TaskType;
-  using Vertex = typename GraphType::index_type;
 
   // Load the graph into host memory and create its device copy.
   GraphType h_graph, d_graph;
@@ -30,13 +107,11 @@ Benchmarks::Status run_benchmark(const char* graph_path, const char* source_text
     return Benchmarks::Status::ERROR;
   }
 
-  const long source_value = std::strtol(source_text, nullptr, 10);
-  if (source_value < 0 || source_value >= h_graph.nnodes) {
-    std::cerr << "Source vertex is outside the graph.\n";
+  if (!is_valid_config<GraphType>(config, h_graph)) {
     h_graph.dealloc();
     return Benchmarks::Status::ERROR;
   }
-  const Vertex source = static_cast<Vertex>(source_value);
+
   if (!h_graph.copy_to_gpu(d_graph)) {
     std::cerr << "Copying graph to GPU failed.\n";
     h_graph.dealloc();
@@ -45,7 +120,7 @@ Benchmarks::Status run_benchmark(const char* graph_path, const char* source_text
 
   // Allocate and initialize the benchmark's host/device working buffers.
   Benchmark benchmark;
-  if (benchmark.init(h_graph) == Benchmarks::Status::ERROR || 
+  if (benchmark.init(h_graph, config) == Benchmarks::Status::ERROR || 
       benchmark.copy_to_device() == Benchmarks::Status::ERROR
   ) {
     benchmark.dealloc();
@@ -79,7 +154,7 @@ Benchmarks::Status run_benchmark(const char* graph_path, const char* source_text
           scheduler_impl.init(scheduler_byte_capacity, num_blocks, num_warps);
           auto* d_scheduler = scheduler_impl.device_setup(prop);
           if (d_scheduler == nullptr ||
-              benchmark.solve(d_graph, source, d_scheduler, num_blocks,
+              benchmark.solve(d_graph, d_scheduler, num_blocks,
                               warps_per_block * prop.warpSize) == Benchmarks::Status::ERROR ||
               benchmark.copy_to_host() == Benchmarks::Status::ERROR) {
             result = Benchmarks::Status::ERROR;
@@ -88,7 +163,7 @@ Benchmarks::Status run_benchmark(const char* graph_path, const char* source_text
         },
         h_scheduler);
 
-    benchmark.print_distances();
+    benchmark.print_result();
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     result = Benchmarks::Status::ERROR;
@@ -111,63 +186,31 @@ Benchmarks::Status run_benchmark(const char* graph_path, const char* source_text
 // NOTE: NodeDataType is currently only needed for A* for coordinates used to compute h score
 // Default this to int for now. When building the graph, the node data is optional and only done if
 // specified in the .gr file
-template <template <typename> class BenchmarkTemplate, typename NodeDataType = std::int32_t>
+template <template <typename> class BenchmarkTemplate, typename NodeDataType>
 int run_with_weight(
   const char* graph_path,
-  const char* source_text,
   const char* weight_name,
   SchedulerType scheduler_choice,
-  const cudaDeviceProp& prop
+  const cudaDeviceProp& prop,
+  const Benchmarks::BenchmarkConfig& config
 ) {
   if (std::strcmp(weight_name, "int32") == 0) {
     return static_cast<int>(
-      run_benchmark<BenchmarkTemplate, std::int32_t, NodeDataType>(graph_path, source_text, scheduler_choice, prop)
+      run_benchmark<BenchmarkTemplate, std::int32_t, NodeDataType>(graph_path, config, scheduler_choice, prop)
     );
   }
   if (std::strcmp(weight_name, "uint32") == 0) {
     return static_cast<int>(
-      run_benchmark<BenchmarkTemplate, std::uint32_t, NodeDataType>(graph_path, source_text, scheduler_choice, prop)
+      run_benchmark<BenchmarkTemplate, std::uint32_t, NodeDataType>(graph_path, config, scheduler_choice, prop)
     );
   }
-  if (std::strcmp(weight_name, "float32") == 0) {
-    return static_cast<int>(
-      run_benchmark<BenchmarkTemplate, float, NodeDataType>(graph_path, source_text, scheduler_choice, prop)
-    );
-  }
+  // if (std::strcmp(weight_name, "float32") == 0) {
+  //   return static_cast<int>(
+  //     run_benchmark<BenchmarkTemplate, float, NodeDataType>(graph_path, config, scheduler_choice, prop)
+  //   );
+  // }
   std::cerr << "Unsupported weight type: " << weight_name << '\n';
   return 1;
 }
 
-int main(int argc, char* argv[]) {
-  if (argc != 6) {
-    std::cerr << "Usage: " << argv[0]
-              << " <benchmark> <graph.gr> <source> <weight-type> <scheduler>\n"
-              << "benchmark: bfs sssp a*\n"
-              << "weight-type: int32, uint32, float32\n"
-              << "scheduler: initial_scheduler\n";
-    return 1;
-  }
-
-  cudaDeviceProp prop;
-  CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
-
-  try {
-    const SchedulerType scheduler_choice = from_string(argv[5]);
-
-    if (std::strcmp(argv[1], "bfs") == 0) {
-      return run_with_weight<BFS>(argv[2], argv[3], argv[4], scheduler_choice, prop);
-    }
-    if (std::strcmp(argv[1], "sssp") == 0) {
-      return run_with_weight<SSSP>(argv[2], argv[3], argv[4], scheduler_choice, prop);
-    }
-    if (std::strcmp(argv[1], "a*") == 0) {
-      return run_with_weight<A_STAR, std::pair<std::int32_t, std::int32_t>>(argv[2], argv[3], argv[4], scheduler_choice, prop);
-    }
-
-    std::cerr << "Unsupported benchmark: " << argv[1] << '\n';
-    return 1;
-  } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
-    return 1;
-  }
-}
+} // End anonymous namespace

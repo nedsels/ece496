@@ -18,12 +18,13 @@ static __global__ void bfs_kernel(GraphType graph,
                                   unsigned* dist, SchedulerType* scheduler);
 
 template <typename GraphType>
-Benchmarks::Status BFS<GraphType>::init(GraphType& graph) {
+Benchmarks::Status BFS<GraphType>::init(const GraphType& graph, const Benchmarks::BenchmarkConfig& config) {
 	if (initialized) {
 		return Benchmarks::Status::ERROR;
 	}
 	nnodes = graph.nnodes;
 	distances_bytes = nnodes * sizeof(unsigned);
+	src = static_cast<typename GraphType::index_type>(config.source.value());
 
 	h_distances = static_cast<unsigned*>(malloc(distances_bytes));
 	if (h_distances == nullptr) {
@@ -58,19 +59,21 @@ Benchmarks::Status BFS<GraphType>::copy_to_host() {
 
 template <typename GraphType>
 template <typename SchedulerType>
-Benchmarks::Status BFS<GraphType>::solve(GraphType d_graph, index_type source,
-                               SchedulerType* d_scheduler, unsigned grid_size,
-                               unsigned block_size) {
-	bfs_kernel<<<grid_size, block_size>>>(d_graph, source, d_distances,
-										d_scheduler);
+Benchmarks::Status BFS<GraphType>::solve(
+	GraphType d_graph, SchedulerType* d_scheduler, 
+	unsigned grid_size, unsigned block_size) {
+	bfs_kernel<<<grid_size, block_size>>>(
+		d_graph, src, 
+		d_distances, d_scheduler
+	);
 	CUDA_CHECK(cudaGetLastError());
 	CUDA_CHECK(cudaDeviceSynchronize());
 	return Benchmarks::Status::SUCCESS;
 }
 
 template <typename GraphType>
-void BFS<GraphType>::print_distances() {
-	std::cout << "Distances by vertex: \n";
+void BFS<GraphType>::print_result() {
+	std::cout << "Distances by vertex from " << src << ": \n";
 	for (index_type i = 0; i < nnodes; i++) {
 	std::cout << i << ":" << h_distances[i] << " ";
 	}

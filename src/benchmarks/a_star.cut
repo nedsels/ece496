@@ -11,29 +11,45 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <algorithm>
+
+namespace {
+
+// Helper to compute h score
+template <typename GraphType>
+__device__ float h(
+    const GraphType& graph, const typename GraphType::index_type n, 
+    const std::pair<std::int32_t, std::int32_t>& dest_coord
+);
+
+} // End anonymous namespace
 
 template <typename GraphType, typename SchedulerType>
 static __global__ void a_star_kernel(
-    GraphType graph, typename GraphType::index_type source, unsigned* dist, SchedulerType* scheduler
+    GraphType graph, typename GraphType::index_type source, 
+    typename GraphType::index_type dest, typename GraphType::edge_data_type* g_scores,
+    SchedulerType* scheduler
 );
 
 template <typename GraphType>
-Benchmarks::Status A_STAR<GraphType>::init(GraphType& graph) {
+Benchmarks::Status A_STAR<GraphType>::init(const GraphType& graph, const Benchmarks::BenchmarkConfig& config) {
     if (initialized) {
         return Benchmarks::Status::ERROR;
     }
 
     nnodes = graph.nnodes;
-    distances_bytes = nnodes * sizeof(unsigned);
+    distances_bytes = nnodes * sizeof(weight_type);
+    src = static_cast<index_type>(config.source.value());
+    dst = static_cast<index_type>(config.destination.value());
 
     // Allocate memory for distances on host
-    h_distances = static_cast<unsigned*>(malloc(distances_bytes));
+    h_distances = static_cast<weight_type*>(malloc(distances_bytes));
     if (h_distances == nullptr) {
         free(h_distances);
         return Benchmarks::Status::ERROR;
     }
 
-    memset(h_distances, 0xff, distances_bytes);
+    std::fill(h_distances, h_distances + nnodes, std::numeric_limits<weight_type>::max());
     // Allocate memory on device
     CUDA_CHECK(
         cudaMalloc(reinterpret_cast<void**>(&d_distances), distances_bytes)
@@ -44,6 +60,7 @@ Benchmarks::Status A_STAR<GraphType>::init(GraphType& graph) {
     return Benchmarks::Status::SUCCESS;
 }
 
+// TODO: Rename this/merge into init
 template <typename GraphType>
 Benchmarks::Status A_STAR<GraphType>::copy_to_device() {
     CUDA_CHECK(cudaMemcpy(d_distances, h_distances, distances_bytes,
@@ -61,12 +78,11 @@ Benchmarks::Status A_STAR<GraphType>::copy_to_host() {
 template <typename GraphType>
 template <typename SchedulerType>
 Benchmarks::Status A_STAR<GraphType>::solve(
-    GraphType d_graph, index_type source,
-    SchedulerType* d_scheduler, unsigned grid_size,
-    unsigned block_size
+    GraphType d_graph, SchedulerType* d_scheduler, 
+    unsigned grid_size, unsigned block_size
 ) {
     a_star_kernel<<<grid_size, block_size>>>(
-        d_graph, source, d_distances, d_scheduler
+        d_graph, src, dst, d_distances, d_scheduler
     );
 
     CUDA_CHECK(cudaGetLastError());
@@ -75,12 +91,10 @@ Benchmarks::Status A_STAR<GraphType>::solve(
 }
 
 template <typename GraphType>
-void A_STAR<GraphType>::print_distances() {
-    std::cout << "Distances by vertex: \n";
-    for (index_type i = 0; i < nnodes; i++) {
-    std::cout << i << ":" << h_distances[i] << " ";
-    }
-    std::cout << std::endl;
+void A_STAR<GraphType>::print_result() {
+    std::cout << "Distance from " << src
+        << " to " << dst << " is " << h_distances[dst] << 
+    std::endl;
 }
 
 template <typename GraphType>
@@ -93,7 +107,8 @@ Benchmarks::Status A_STAR<GraphType>::dealloc() {
 template <typename GraphType, typename SchedulerType>
 static __global__ void a_star_kernel(
     GraphType graph, typename GraphType::index_type source,
-    unsigned* dist, SchedulerType* scheduler
+    typename GraphType::index_type dest,
+    typename GraphType::edge_data_type* g_scores, SchedulerType* scheduler
 ) {
     const unsigned thread_id = blockIdx.x * blockDim.x + threadIdx.x;
     // Position in warp -- lane 0 - 31
@@ -101,11 +116,14 @@ static __global__ void a_star_kernel(
 
     using task_type = typename A_STAR<GraphType>::TaskType;
     using index_type = typename GraphType::index_type;
+    using weight_type = typename GraphType::edge_data_type;
+    using coord = std::pair<std::int32_t, std::int32_t>;
 
+    // Tasks store the f score of each node
     task_type source_task = {source, 0};
     unsigned num_tasks = 0;
     if (thread_id == 0) {
-        atomicExch(&(dist[source]), 0);
+        atomicExch(&(g_scores[source]), 0);
         num_tasks = 1;
     }
     // Only thread 0 is really pushing a task here, but all threads must call since they are in lock step
@@ -113,6 +131,9 @@ static __global__ void a_star_kernel(
 
     task_type task;
     unsigned tasks_read;
+    // Cache the coordinate of the destination node
+    const auto dest_coord = graph.getNodeData(dest);
+
     // Terminates when all sections are empty (i.e. no tasks left)
     // TODO: This is bad for work balancing since work is distributed by vertex rather than edges
     // The task should be associated to the edge rather than the vertex
@@ -122,27 +143,42 @@ static __global__ void a_star_kernel(
         task_type* new_tasks = nullptr;
         unsigned num_new_tasks = 0;
         // pop() writes to the lowest lanes
+        // TODO: This code assumes positive integer weights (float disabled for now)
         if (lane_id < tasks_read) {
             index_type v = task.item;
-            unsigned task_dist = task.priority;
-            unsigned best_dist = dist[v];
-            const index_type degree = graph.getOutDegree(v);
-            // This task is the best distance found
-            // Create tasks for each neighbour to traverse to
-            if (task_dist == best_dist && degree > 0) {
-                new_tasks = (task_type*)malloc(degree * sizeof(task_type));
-                for (index_type e_rel = 0; e_rel < degree; e_rel++) {
-                    index_type nbr = graph.getDestination(v, e_rel);
-                    // dist(v) = dist(u) + weight(u, v) for u --> v
-                    // Assumes NO negative weights
-                    const auto w = graph.getWeight(v, e_rel);
-                    assert(w >= 0);
-                    unsigned new_dist = task_dist + w;
-                    // Update distance vector
-                    // Uphold invariant that if the task is scheduled, the node has a distance calculated
-                    // Atomic guarantees we only create task if we found something better at this instant
-                    if (atomicMin(dist + nbr, new_dist) > new_dist) {
-                        new_tasks[num_new_tasks++] = {nbr, new_dist};
+            const float task_f_score = task.priority;
+            // Prune task if the f score is greater than or equalt to the best distance already found
+            // This works since h is admissible
+            // It must be the case that the actual distance from v to dest is greater than (or equal to) h(v)
+            // As such, if f(v) >= g(dest), then the current task at v cannot improve the solution
+            if (static_cast<weight_type>(task_f_score) < g_scores[dest]) {
+                const weight_type cur_g_score = g_scores[v];
+                // Compute f score to compare against popped f score
+                // This is done because of floating point precision
+                // Alternatively, we can store both f and g scores in the scheduler but this complicates 
+                // how to handle priority in the scheduler
+                const float cur_f_score = static_cast<float>(cur_g_score) + h(graph, v, static_cast<coord>(dest_coord));
+                const index_type degree = graph.getOutDegree(v);
+                // Discard task if stale
+                if (task_f_score <= cur_f_score && degree > 0) {
+                    new_tasks = (task_type*)malloc(degree * sizeof(task_type));
+                    for (index_type e_rel = 0; e_rel < degree; e_rel++) {
+                        index_type nbr = graph.getDestination(v, e_rel);
+                        // dist(v) = dist(u) + weight(u, v) for u --> v
+                        // Assumes NO negative weights
+                        const weight_type w = graph.getWeight(v, e_rel); /* Implicit cast to float */
+                        assert(w >= 0);
+                        const weight_type tentative_g_score = cur_g_score + w;
+                        // Overflow guard
+                        if (tentative_g_score < cur_g_score) assert(false);
+                        // Found better distance to node, update
+                        if (atomicMin(g_scores + nbr, tentative_g_score) > tentative_g_score) {
+                            // Push f score
+                            new_tasks[num_new_tasks++] = {
+                                nbr, 
+                                static_cast<float>(tentative_g_score) + h(graph, nbr, static_cast<coord>(dest_coord))
+                            };
+                        }
                     }
                 }
             }
@@ -157,3 +193,23 @@ static __global__ void a_star_kernel(
         }
     }
 }
+
+namespace {
+
+// Helper to compute h score
+// TODO: Maybe lazily cache these values instead of recomputing
+// Not sure if the cache should be global or shared memory
+template <typename GraphType>
+__device__ float h(
+    const GraphType& graph, const typename GraphType::index_type n, 
+    const std::pair<std::int32_t, std::int32_t>& dest_coord
+) {
+    // Euclidean distance
+    // Assumes the coordinates are chosen such that the heuristic is admissible (i.e. never overestimates)
+    const auto cur_pos = graph.getNodeData(n);
+    const auto dx = std::abs(dest_coord.first - cur_pos.first);
+    const auto dy = std::abs(dest_coord.second - cur_pos.second);
+    return sqrtf(dx * dx + dy * dy);
+}
+
+} // End anonymous namespace

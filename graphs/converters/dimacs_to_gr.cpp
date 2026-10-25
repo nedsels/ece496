@@ -6,7 +6,6 @@
 //   u32 dst[numEdges]        (0-based)
 //   u32 pad (only if numEdges is odd)
 //   u32 weight[numEdges]
-//
 // Optional node-data trailer (only written when node data is present):
 //   u64 kind                 (1 = single u32 value, 2 = (i32 x, i32 y) pair)
 //   kind 1: u32 value[numNodes]
@@ -18,12 +17,12 @@
 //   v <id> <x> <y>           coordinate pair (signed 32-bit)
 // A file may use only one of the two kinds.
 //
-// Two passes over the text file keep memory low:
+// Two passes over the graph file keep memory low:
 //   pass 1 counts out-degrees, pass 2 places each edge directly in CSR order.
 // Edges that have no weight field get weight 1.
 //
 // Build: g++ -O2 -std=c++17 -o dimacs2gr dimacs2gr.cpp
-// Usage: ./dimacs2gr input.gr output.bin.gr [input.co]
+// Usage: ./dimacs2gr input.gr output.bin.gr [node_data.txt]
 
 #include <cstdint>
 #include <cstdio>
@@ -123,7 +122,9 @@ static void parse_node_line(const char* line, std::uint64_t n, NodeData& nd,
 
 int main(int argc, char** argv) {
   if (argc != 3 && argc != 4) {
-    std::fprintf(stderr, "Usage: %s <input_dimacs.gr> <output_binary.gr> [node_data.txt]\n",
+    std::fprintf(stderr,
+                 "Usage: %s <input_dimacs.gr> <output_binary.gr> "
+                 "[node_data.txt]\n",
                  argv[0]);
     return 1;
   }
@@ -175,6 +176,10 @@ int main(int argc, char** argv) {
         die("weight does not fit in 32 bits", lineno);
       ++cursor[arc.u - 1];
       ++m;
+    } else if (line[0] == 'n' || line[0] == 'v') {
+      if (!have_header)
+        die("node-data line before 'p' line", lineno);
+      parse_node_line(line, n, nodes, lineno);
     }
     // 'c' and anything else: ignored
   }
@@ -185,9 +190,6 @@ int main(int argc, char** argv) {
                  "Warning: header says %llu arcs but found %llu; using %llu\n",
                  (unsigned long long)m_header, (unsigned long long)m,
                  (unsigned long long)m);
-
-  std::fprintf(stderr, "nodes=%llu edges=%llu\n", (unsigned long long)n,
-               (unsigned long long)m);
 
   // ---------------- optional separate node-data file ----------------
   if (node_path) {

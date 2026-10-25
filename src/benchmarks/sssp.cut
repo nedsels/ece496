@@ -14,26 +14,28 @@
 
 template <typename GraphType, typename SchedulerType>
 static __global__ void sssp_kernel(
-    GraphType graph, typename GraphType::index_type source, unsigned* dist, SchedulerType* scheduler
+    GraphType graph, typename GraphType::index_type source, 
+    typename GraphType::edge_data_type* dist, SchedulerType* scheduler
 );
 
 template <typename GraphType>
-Benchmarks::Status SSSP<GraphType>::init(GraphType& graph) {
+Benchmarks::Status SSSP<GraphType>::init(const GraphType& graph, const Benchmarks::BenchmarkConfig& config) {
     if (initialized) {
         return Benchmarks::Status::ERROR;
     }
 
     nnodes = graph.nnodes;
-    distances_bytes = nnodes * sizeof(unsigned);
+    distances_bytes = nnodes * sizeof(weight_type);
+    src = static_cast<index_type>(config.source.value());
 
     // Allocate memory for distances on host
-    h_distances = static_cast<unsigned*>(malloc(distances_bytes));
+    h_distances = static_cast<weight_type*>(malloc(distances_bytes));
     if (h_distances == nullptr) {
         free(h_distances);
         return Benchmarks::Status::ERROR;
     }
 
-    memset(h_distances, 0xff, distances_bytes);
+    std::fill(h_distances, h_distances + nnodes, std::numeric_limits<weight_type>::max());
     // Allocate memory on device
     CUDA_CHECK(
         cudaMalloc(reinterpret_cast<void**>(&d_distances), distances_bytes)
@@ -61,12 +63,12 @@ Benchmarks::Status SSSP<GraphType>::copy_to_host() {
 template <typename GraphType>
 template <typename SchedulerType>
 Benchmarks::Status SSSP<GraphType>::solve(
-    GraphType d_graph, index_type source,
-    SchedulerType* d_scheduler, unsigned grid_size,
-    unsigned block_size
+    GraphType d_graph, SchedulerType* d_scheduler, 
+    unsigned grid_size, unsigned block_size
 ) {
     sssp_kernel<<<grid_size, block_size>>>(
-        d_graph, source, d_distances, d_scheduler
+        d_graph, src, 
+        d_distances, d_scheduler
     );
 
     CUDA_CHECK(cudaGetLastError());
@@ -75,10 +77,10 @@ Benchmarks::Status SSSP<GraphType>::solve(
 }
 
 template <typename GraphType>
-void SSSP<GraphType>::print_distances() {
-    std::cout << "Distances by vertex: \n";
+void SSSP<GraphType>::print_result() {
+    std::cout << "Distances by vertex from " << src << ": \n";
     for (index_type i = 0; i < nnodes; i++) {
-    std::cout << i << ":" << h_distances[i] << " ";
+        std::cout << i << ":" << h_distances[i] << " ";
     }
     std::cout << std::endl;
 }
@@ -93,7 +95,7 @@ Benchmarks::Status SSSP<GraphType>::dealloc() {
 template <typename GraphType, typename SchedulerType>
 static __global__ void sssp_kernel(
     GraphType graph, typename GraphType::index_type source,
-    unsigned* dist, SchedulerType* scheduler
+    typename GraphType::edge_data_type* dist, SchedulerType* scheduler
 ) {
     const unsigned thread_id = blockIdx.x * blockDim.x + threadIdx.x;
     // Position in warp -- lane 0 - 31
@@ -124,11 +126,12 @@ static __global__ void sssp_kernel(
         // pop() writes to the lowest lanes
         if (lane_id < tasks_read) {
             index_type v = task.item;
-            unsigned task_dist = task.priority;
-            unsigned best_dist = dist[v];
+            const auto task_dist = task.priority;
+            const auto best_dist = dist[v];
             const index_type degree = graph.getOutDegree(v);
             // This task is the best distance found
             // Create tasks for each neighbour to traverse to
+            // TODO: Handle floating point precision errors
             if (task_dist == best_dist && degree > 0) {
                 new_tasks = (task_type*)malloc(degree * sizeof(task_type));
                 for (index_type e_rel = 0; e_rel < degree; e_rel++) {
@@ -137,7 +140,7 @@ static __global__ void sssp_kernel(
                     // Assumes NO negative weights
                     const auto w = graph.getWeight(v, e_rel);
                     assert(w >= 0);
-                    unsigned new_dist = task_dist + w;
+                    const auto new_dist = task_dist + w;
                     // Update distance vector
                     // Uphold invariant that if the task is scheduled, the node has a distance calculated
                     // Atomic guarantees we only create task if we found something better at this instant

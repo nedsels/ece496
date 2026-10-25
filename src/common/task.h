@@ -1,7 +1,7 @@
 #pragma once
 
-template <typename Item>
+template <typename Item, typename Priority>
 struct Task {
   Item item;
-  unsigned priority;
+  Priority priority;
 };
