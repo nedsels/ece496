@@ -83,24 +83,11 @@ int run_benchmark(const char* graph_path, const char* source_text,
     Scheduler<TaskType> h_scheduler = get_scheduler<TaskType>(scheduler_choice);
 
     // HYPERPARAMETER
-<<<<<<< HEAD
-    // Reserve half of free VRAM (arbitrary, should be chosen more
-    // intelligently)
-=======
     // Reserve 1/8 of free VRAM (completely arbitrary)
->>>>>>> origin/main
     std::size_t free_bytes = 0;
     std::size_t total_bytes = 0;
     CUDA_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
     const unsigned scheduler_byte_capacity =
-<<<<<<< HEAD
-        static_cast<unsigned>(free_bytes / 2);
-
-    // HYPERPARAMETER
-    // Use one block per SM and the maximum number of warps per block.
-    const unsigned num_blocks = prop.multiProcessorCount;
-    const unsigned warps_per_block = prop.maxThreadsPerBlock / prop.warpSize;
-=======
         static_cast<unsigned>(free_bytes / 8);
 
     // HYPERPARAMETER
@@ -109,7 +96,6 @@ int run_benchmark(const char* graph_path, const char* source_text,
     const unsigned num_blocks = prop.multiProcessorCount / 2;
     const unsigned warps_per_block =
         prop.maxThreadsPerBlock / prop.warpSize / 2;
->>>>>>> origin/main
     const unsigned num_warps = warps_per_block * num_blocks;
 
     std::visit(
