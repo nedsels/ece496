@@ -57,20 +57,10 @@ template <typename SchedulerType>
 unsigned BFS<GraphType>::solve(GraphType d_graph, index_type source,
                                SchedulerType* d_scheduler, unsigned grid_size,
                                unsigned block_size) {
-  cudaEvent_t start, stop;
-  CUDA_CHECK(cudaEventCreate(&start));
-  CUDA_CHECK(cudaEventCreate(&stop));
-
-  CUDA_CHECK(cudaEventRecord(start));
   bfs_kernel<<<grid_size, block_size>>>(d_graph, source, d_distances,
                                         d_scheduler);
   CUDA_CHECK(cudaGetLastError());
-  CUDA_CHECK(cudaEventRecord(stop));
   CUDA_CHECK(cudaDeviceSynchronize());
-  CUDA_CHECK(cudaEventElapsedTime(&kernel_ms, start, stop));
-
-  CUDA_CHECK(cudaEventDestroy(start));
-  CUDA_CHECK(cudaEventDestroy(stop));
   return 1;
 }
 
@@ -81,22 +71,6 @@ unsigned BFS<GraphType>::print_distances() {
     std::cout << i << ":" << h_distances[i] << " ";
   }
   std::cout << std::endl;
-  return 1;
-}
-
-template <typename GraphType>
-unsigned BFS<GraphType>::write_distances(const char* path) {
-  FILE* file = fopen(path, "wb");
-  if (file == nullptr) {
-    std::cerr << "Unable to open output file: " << path << '\n';
-    return 0;
-  }
-  const size_t written = fwrite(h_distances, sizeof(unsigned), nnodes, file);
-  const bool closed = fclose(file) == 0;
-  if (written != static_cast<size_t>(nnodes) || !closed) {
-    std::cerr << "Failed writing output file: " << path << '\n';
-    return 0;
-  }
   return 1;
 }
 
@@ -131,6 +105,7 @@ static __global__ void bfs_kernel(GraphType graph,
          POP_DONE) {
     task_type* new_tasks = nullptr;
     unsigned num_new_tasks = 0;
+    // pop() writes to the lowest lanes
     if (lane_id < tasks_read) {
       index_type v = task.item;
       unsigned prev_dist = task.priority;
@@ -138,13 +113,6 @@ static __global__ void bfs_kernel(GraphType graph,
       index_type degree = graph.getOutDegree(v);
       if (curr_dist >= prev_dist && degree > 0) {
         new_tasks = (task_type*)malloc(degree * sizeof(task_type));
-        if (new_tasks == nullptr) {
-          // Device heap exhausted; abort the kernel so the host sees an error
-          // instead of silently dropping tasks.
-          printf("bfs_kernel: device malloc of %u tasks failed\n",
-                 (unsigned)degree);
-          __trap();
-        }
         for (index_type e_rel = 0; e_rel < degree; e_rel++) {
           index_type nbr = graph.getDestination(v, e_rel);
           unsigned new_dist = curr_dist + 1;
@@ -154,13 +122,12 @@ static __global__ void bfs_kernel(GraphType graph,
         }
       }
     }
-    const PushResult push_result =
-        scheduler->push(new_tasks, num_new_tasks, thread_id);
-    // push() copies the tasks into the queue, so the buffer can go now.
-    free(new_tasks);
-    if (push_result == PUSH_DEADLOCK) {
-      printf("Dealock\n");
+    if (scheduler->push(new_tasks, num_new_tasks, thread_id) == PUSH_DEADLOCK) {
+      printf("Deadlock\n");
       assert(false);
+    }
+    if (new_tasks != nullptr) {
+      free(new_tasks);
     }
   }
 }

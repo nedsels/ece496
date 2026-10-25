@@ -28,9 +28,6 @@ struct BFS {
   // Print distances by vertex on host
   unsigned print_distances();
 
-  // Write host distances to path as raw uint32 values, one per vertex.
-  unsigned write_distances(const char* path);
-
   // Dealloc on both host and device.
   unsigned dealloc();
 
@@ -38,8 +35,6 @@ struct BFS {
   unsigned distances_bytes;
   unsigned* h_distances;
   unsigned* d_distances;
-  // Kernel time of the last solve(), measured with cudaEvents.
-  float kernel_ms = 0.0f;
 };
 
 #include <benchmarks/bfs.cut>

@@ -2,6 +2,11 @@
 
 #include <common/utils.cuh>
 
+<<<<<<< HEAD
+=======
+#include <cassert>
+
+>>>>>>> origin/main
 template <typename TaskType>
 unsigned InitialScheduler<TaskType>::init(const unsigned byte_capacity,
                                           const unsigned num_blocks,
@@ -17,7 +22,11 @@ unsigned InitialScheduler<TaskType>::init(const unsigned byte_capacity,
   _write_section = 0;
   _num_full_sections = 0;
   _num_warps_writing = 0;
+<<<<<<< HEAD
   _num_non_empty_sections = 0;
+=======
+  _num_empty_sections = _num_sections;
+>>>>>>> origin/main
   _num_warps_reading = 0;
 
   return 1;
@@ -26,6 +35,12 @@ unsigned InitialScheduler<TaskType>::init(const unsigned byte_capacity,
 template <typename TaskType>
 InitialScheduler<TaskType>*
 InitialScheduler<TaskType>::device_setup(const cudaDeviceProp& prop) {
+<<<<<<< HEAD
+=======
+  // TODO: instead of carving up _d_alloc, determine how much memory we can
+  // reserve for _queue, then use cudaMalloc for everything
+
+>>>>>>> origin/main
   CUDA_CHECK(cudaMalloc((void**)&_d_alloc, _byte_capacity));
   char* curr = _d_alloc;
   CUDA_CHECK(cudaMemset(curr, 0, _byte_capacity));
@@ -76,12 +91,26 @@ template <typename TaskType>
 __device__ PushResult InitialScheduler<TaskType>::push(
     TaskType* tasks, unsigned num_tasks, const unsigned thread_id) {
   const unsigned lane_id = thread_id & 31;
+<<<<<<< HEAD
+=======
+
+  // Used for deadlock detection
+>>>>>>> origin/main
   if (lane_id == 0) {
     atomicAdd(&_num_warps_writing, 1);
   }
 
+<<<<<<< HEAD
   PushResult result = PUSH_FAILURE;
   while (true) {
+=======
+  // Each thread has num_tasks to push. In each iteration of the loop, if we can
+  // write to the section, each lane writes 1 task if it has any left. Then,
+  // decrement num_tasks, and increment the tasks pointer
+  PushResult result = PUSH_FAILURE;
+  while (true) {
+    // If no lanes have tasks remaining, the push is done
+>>>>>>> origin/main
     unsigned ballot = __ballot_sync(FULL_MASK, num_tasks);
     if (ballot == 0) {
       if (lane_id == 0) {
@@ -95,23 +124,43 @@ __device__ PushResult InitialScheduler<TaskType>::push(
     bool section_busy = false;
     bool section_full = false;
     if (lane_id == 0) {
+<<<<<<< HEAD
       if (_num_sections > 1) {
         curr_section_idx = atomicInc(&_write_section, _num_sections - 1);
+=======
+      // The next warp to push will write to the next section
+      if (_num_sections > 1) {
+        curr_section_idx = atomicInc(&_write_section, _num_sections - 1);
+        assert(curr_section_idx < _num_sections);
+>>>>>>> origin/main
       }
       section_busy = atomicExch(&(_section_metadata[curr_section_idx].busy), 1);
       section_full = _section_metadata[curr_section_idx].full;
     }
 
+<<<<<<< HEAD
+=======
+    // If section is busy reading, try again
+>>>>>>> origin/main
     section_busy = __shfl_sync(FULL_MASK, section_busy, 0);
     if (section_busy) {
       continue;
     }
 
+<<<<<<< HEAD
+=======
+    // If section is full, release the section. Check if both all sections are
+    // full and all warps are writing, in which case we are deadlocked.
+>>>>>>> origin/main
     section_full = __shfl_sync(FULL_MASK, section_full, 0);
     if (section_full) {
       if (lane_id == 0) {
         section_busy =
             atomicExch(&(_section_metadata[curr_section_idx].busy), 0);
+<<<<<<< HEAD
+=======
+        assert(section_busy);
+>>>>>>> origin/main
       }
       if (_num_full_sections == _num_sections &&
           _num_warps_writing == _num_warps) {
@@ -122,29 +171,37 @@ __device__ PushResult InitialScheduler<TaskType>::push(
     }
 
     curr_section_idx = __shfl_sync(FULL_MASK, curr_section_idx, 0);
-    SectionMD curr_section_md = _section_metadata[curr_section_idx];
+    SectionMD secmd = _section_metadata[curr_section_idx];
+
+    // ballot_sum represents the number of lanes that have a task to write
     unsigned ballot_sum = __popc(ballot);
 
-    if (curr_section_md.resv_end < curr_section_md.resv_start) {
-      curr_section_md.resv_end += _section_capacity;
+    // Use the unwrapped version of resv_end (>=_section_capacity), as it makes
+    // the logic just below simpler
+    if (secmd.resv_end < secmd.resv_start) {
+      secmd.resv_end += _section_capacity;
     }
-    unsigned old_resv_end = curr_section_md.resv_end;
-    curr_section_md.resv_end += ballot_sum;
+    unsigned old_resv_end = secmd.resv_end;
+    secmd.resv_end += ballot_sum;
 
-    if (curr_section_md.resv_end - curr_section_md.resv_start >=
-        _section_capacity) {
-      curr_section_md.resv_end = curr_section_md.resv_start + _section_capacity;
-      curr_section_md.full = true;
+    // If the warp wants to write too many tasks, only the lower lanes can
+    // write. The section will become full.
+    if (secmd.resv_end - secmd.resv_start >= _section_capacity) {
+      secmd.resv_end = secmd.resv_start + _section_capacity;
+      secmd.full = true;
       if (lane_id == 0) {
         atomicAdd(&_num_full_sections, 1);
       }
     }
-    ballot_sum = curr_section_md.resv_end - old_resv_end;
-    curr_section_md.resv_end %= _section_capacity;
+
+    // Rewrap resv_end
+    secmd.resv_end %= _section_capacity;
     old_resv_end %= _section_capacity;
 
+    // resv_offset is the offset past old_resv_end that this lane will write
+    const unsigned num_writing = secmd.resv_end - old_resv_end;
     const unsigned resv_offset = popc_below(ballot, lane_id);
-    if (num_tasks > 0 && resv_offset < ballot_sum) {
+    if (num_tasks > 0 && resv_offset < num_writing) {
       const unsigned section_offset = _section_capacity * curr_section_idx;
       const unsigned write_offset =
           (old_resv_end + resv_offset) % _section_capacity;
@@ -153,13 +210,20 @@ __device__ PushResult InitialScheduler<TaskType>::push(
       tasks++;
     }
 
+    // Update global and section metadata
+    __syncwarp();
     if (lane_id == 0) {
-      const bool was_empty = old_resv_end == curr_section_md.resv_start;
+      const bool was_empty = old_resv_end == secmd.resv_start;
       if (was_empty) {
-        atomicAdd(&_num_non_empty_sections, 1);
+        atomicSub(&_num_empty_sections, 1);
       }
-      _section_metadata[curr_section_idx] = curr_section_md;
-      atomicExch(&(_section_metadata[curr_section_idx].busy), 0);
+
+      _section_metadata[curr_section_idx] = secmd;
+      __threadfence();
+
+      const unsigned was_busy =
+          atomicExch(&(_section_metadata[curr_section_idx].busy), 0);
+      assert(was_busy);
     }
   }
 
@@ -171,6 +235,10 @@ template <typename TaskType>
 __device__ PopResult InitialScheduler<TaskType>::pop(
     TaskType* dst, unsigned* tasks_popped, const unsigned warp_max_tasks,
     const unsigned block_id, const unsigned thread_id) {
+  // All lanes should pass in the same warp_max_tasks
+  const unsigned warp_max_tasks_l0 = __shfl_sync(FULL_MASK, warp_max_tasks, 0);
+  assert(warp_max_tasks == warp_max_tasks_l0);
+
   *tasks_popped = 0;
 
   if (warp_max_tasks == 0) {
@@ -179,35 +247,48 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
   }
 
   const unsigned lane_id = thread_id & 31;
+
+  // Used to detect completion
   if (lane_id == 0) {
     atomicAdd(&_num_warps_reading, 1);
   }
 
+  // Each block reads from sections block_id + k * _num_blocks, within bounds.
+  // Start at the last "stride" of sections so the first iteration of the loop
+  // checks stride 0. NOTE: The disadvantage of this approach is that we are
+  // biased towards earlier sections. read_section could alternatively be a
+  // shared variable. Though eventually, if we move to a MQ approach, we will be
+  // picking random sections anyways.
   unsigned read_section =
-      align_up<unsigned>(_num_sections, _num_blocks) + block_id;
-  SectionMD curr_section_md;
+      align_down<unsigned>(_num_sections, _num_blocks) + block_id;
+  SectionMD secmd;
   while (true) {
     read_section = (read_section + _num_blocks) % _num_sections;
 
-    bool section_busy = false;
+    unsigned section_busy = false;
     if (lane_id == 0) {
       section_busy = atomicExch(&(_section_metadata[read_section].busy), 1);
     }
 
+    // If section was busy writing, try the next one
     section_busy = __shfl_sync(FULL_MASK, section_busy, 0);
     if (section_busy) {
       continue;
     }
 
-    curr_section_md = _section_metadata[read_section];
-    const bool empty =
-        (curr_section_md.resv_start == curr_section_md.resv_end) &&
-        !curr_section_md.full;
+    secmd = _section_metadata[read_section];
+
+    // If section is empty, release it. If all sections are empty and all warps
+    // are reading, there are no more tasks left, so the algorithm has
+    // completed.
+    const bool empty = (secmd.resv_start == secmd.resv_end) && !secmd.full;
     if (empty) {
       if (lane_id == 0) {
         section_busy = atomicExch(&(_section_metadata[read_section].busy), 0);
+        assert(section_busy);
       }
-      if (_num_non_empty_sections == 0 && _num_warps_reading == _num_warps) {
+      if (_num_empty_sections == _num_sections &&
+          _num_warps_reading == _num_warps) {
         __syncwarp();
         return POP_DONE;
       }
@@ -216,36 +297,43 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
     break;
   }
 
-  unsigned available_tasks = 0;
-  if (curr_section_md.full) {
-    available_tasks = _section_capacity;
-  } else {
-    const unsigned unwrapped_end = curr_section_md.resv_end + _section_capacity;
-    available_tasks =
-        (unwrapped_end - curr_section_md.resv_start) % _section_capacity;
-  }
+  const unsigned unwrapped_end = secmd.resv_end + _section_capacity;
+  const unsigned available_tasks =
+      (unwrapped_end - secmd.resv_start) % _section_capacity;
+
+  // We will pop at most 1 task per lane
   *tasks_popped = min(warp_max_tasks, available_tasks);
   *tasks_popped = min(*tasks_popped, warpSize);
 
+  // We pop into the lowest lanes
   if (lane_id < *tasks_popped) {
     const unsigned section_offset = _section_capacity * read_section;
     const unsigned read_offset =
-        (curr_section_md.resv_start + lane_id) % _section_capacity;
+        (secmd.resv_start + lane_id) % _section_capacity;
     *dst = *(_queue + section_offset + read_offset);
   }
-  curr_section_md.resv_start =
-      (curr_section_md.resv_start + *tasks_popped) % _section_capacity;
+  secmd.resv_start += *tasks_popped;
+  assert(secmd.resv_start <= unwrapped_end);
+  secmd.resv_start %= _section_capacity;
 
+  // Update global and section metadata
+  __syncwarp();
   if (lane_id == 0) {
-    if (curr_section_md.full) {
+    if (secmd.full) {
       atomicSub(&_num_full_sections, 1);
     }
-    curr_section_md.full = false;
-    if (curr_section_md.resv_start == curr_section_md.resv_end) {
-      atomicSub(&_num_non_empty_sections, 1);
+    secmd.full = false;
+    if (secmd.resv_start == secmd.resv_end) {
+      atomicAdd(&_num_empty_sections, 1);
     }
-    _section_metadata[read_section] = curr_section_md;
-    atomicExch(&(_section_metadata[read_section].busy), 0);
+
+    _section_metadata[read_section] = secmd;
+    __threadfence();
+
+    const unsigned was_busy =
+        atomicExch(&(_section_metadata[read_section].busy), 0);
+    assert(was_busy);
+
     atomicSub(&_num_warps_reading, 1);
   }
 
