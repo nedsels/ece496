@@ -2,7 +2,7 @@
 """Run benchmarks on input graphs against one scheduler.
 
 Builds bin/ece496, runs every (benchmark, graph, source) combination with the
-scheduler chosen at runtime through an .ini file (`--ini`, key `scheduler`),
+given scheduler (selected at runtime by the binary's <scheduler> argument),
 checks the answers against each graph's reference.txt when there is one, and
 writes a CSV.
 
@@ -11,7 +11,6 @@ Examples (from the repo root):
   bench/run_benchmarks.py                            # every benchmark on every graph that fits
   bench/run_benchmarks.py -g germany-osm livejournal -b bfs --runs 5
   GRAPH_DIR="/path/to/processed_graphs" bench/run_benchmarks.py -b bfs sssp
-  bench/run_benchmarks.py --ini my_sched.ini         # scheduler (and later, its knobs) from a file
 
 Graphs are looked up in graphs/inputs/ plus every --graph-dir (or $GRAPH_DIR,
 separated by ':'). Both layouts are found:
@@ -23,11 +22,9 @@ separated by ':'). Both layouts are found:
 """
 
 import argparse
-import configparser
 import csv
 import os
 import re
-import shutil
 import statistics
 import struct
 import subprocess
@@ -216,16 +213,14 @@ def build(cuda_arch):
     subprocess.run(cmd, check=True)
 
 
-def binary_supports(binary, benchmark, scheduler, weight_type, ini):
+def binary_supports(binary, benchmark, scheduler, weight_type):
     """main.cu rejects unknown benchmarks before loading the graph, so a run
     on a missing file tells us whether the benchmark is implemented."""
     proc = subprocess.run(
         [str(binary), benchmark, "/nonexistent.gr", "0", weight_type,
-         scheduler, "--ini", str(ini)],
-        capture_output=True, text=True, timeout=60)
-    if re.search(r"Unknown scheduler|ini (file|key|line)", proc.stderr):
-        raise RuntimeError(f"{binary.name} rejected the settings: "
-                           f"{proc.stderr.strip()}")
+         scheduler], capture_output=True, text=True, timeout=60)
+    if "Unknown scheduler" in proc.stderr:
+        raise RuntimeError(f"{binary.name} rejected scheduler {scheduler!r}")
     return "Unsupported benchmark" not in proc.stderr
 
 
@@ -248,10 +243,9 @@ def check_distances(out_path, ref_row, ref_cols):
                     f"want {want[0]}/{want[1]}/{want[2]}")
 
 
-def run_one(binary, benchmark, graph, source, args, ini, out_path, log_path):
+def run_one(binary, benchmark, graph, source, args, out_path, log_path):
     cmd = [str(binary), benchmark, str(graph.path), str(source),
-           args.weight_type, args.scheduler, "--ini", str(ini),
-           "--out", str(out_path), "--time"]
+           args.weight_type, args.scheduler, "--out", str(out_path), "--time"]
     row = {"kernel_ms": "", "load_ms": "", "check": "", "detail": ""}
     start = time.monotonic()
     try:
@@ -307,13 +301,8 @@ def parse_args():
                    help="benchmarks to run, e.g. bfs sssp pagerank "
                         f"(default: those of {', '.join(BENCHMARKS)} the "
                         "binary implements)")
-    p.add_argument("-s", "--scheduler",
-                   help="scheduler to dispatch at runtime, e.g. "
-                        "initial_scheduler (default: `scheduler` from --ini, "
-                        "else initial_scheduler)")
-    p.add_argument("--ini", type=Path,
-                   help="settings file passed to the binary with --ini; "
-                        "-s overrides its `scheduler`")
+    p.add_argument("-s", "--scheduler", default="initial_scheduler",
+                   help="scheduler to run (default: %(default)s)")
     p.add_argument("--graph-dir", action="append", type=Path, default=[],
                    help="extra directory to search for graphs (repeatable; "
                         "also read from $GRAPH_DIR)")
@@ -390,45 +379,23 @@ def main():
     if not args.bin.is_file():
         sys.exit(f"{args.bin} not found; build it or drop --no-build")
 
-    # The run's settings live in one .ini that every run gets with --ini and
-    # that is saved next to the results.
-    config = configparser.ConfigParser()
-    config.optionxform = str
-    if args.ini:
-        # Section headers are optional (the binary ignores them); fold
-        # everything into one [run] section.
-        lines = [l for l in args.ini.read_text().splitlines()
-                 if not l.strip().startswith("[")]
-        config.read_string("[run]\n" + "\n".join(lines))
-    else:
-        config.read_dict({"run": {}})
-    if args.scheduler:
-        config["run"]["scheduler"] = args.scheduler
-    args.scheduler = config["run"].setdefault("scheduler", "initial_scheduler")
-
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = args.results_dir / f"{args.scheduler}_{stamp}"
-    (run_dir / "logs").mkdir(parents=True)
-    ini = run_dir / "config.ini"
-    with open(ini, "w") as f:
-        config.write(f)
-
     benchmarks = []
     for b in split_list(args.benchmarks) or list(BENCHMARKS):
         try:
             supported = binary_supports(args.bin, b, args.scheduler,
-                                        args.weight_type, ini)
+                                        args.weight_type)
         except RuntimeError as e:
-            shutil.rmtree(run_dir)
             sys.exit(str(e))
         if supported:
             benchmarks.append(b)
         else:
             print(f"skip benchmark {b}: not implemented in {args.bin.name}")
     if not benchmarks:
-        shutil.rmtree(run_dir)
         sys.exit("no benchmarks to run")
 
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = args.results_dir / f"{args.scheduler}_{stamp}"
+    (run_dir / "logs").mkdir(parents=True)
     csv_path = run_dir / "results.csv"
     print(f"scheduler {args.scheduler}; benchmarks {', '.join(benchmarks)}; "
           f"graphs {', '.join(g.name for g in runnable)}\nresults in {run_dir}")
@@ -450,7 +417,7 @@ def main():
                         tag = f"{benchmark}_{g.name.replace('/', '_')}_{source}_{run}"
                         out_path = run_dir / f"{tag}.bin"
                         row = run_one(args.bin, benchmark, g, source, args,
-                                      ini, out_path, run_dir / "logs" / f"{tag}.log")
+                                      out_path, run_dir / "logs" / f"{tag}.log")
                         if not args.keep_output:
                             out_path.unlink(missing_ok=True)
                         row.update(scheduler=args.scheduler,
