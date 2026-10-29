@@ -1,0 +1,1283 @@
+== tools
+  git      2.39.5
+  cmake    3.25.1
+  make     4.3
+  g++      12.2.0
+  nvcc     11.8
+  clang++  14.0.6
+  need: cmake >= 3.24 (Gunrock), g++ >= 10, nvcc >= 11.1 (LonestarGPU, MLMQ, ADDS)
+  nvcc for Gunrock: 11.8 (PATH); Gunrock needs >= 12.4, see GUNROCK_CUDA_HOME
+  clang++ is optional (MBQ MIS; g++ is used otherwise)
+  host compiler for nvcc: /usr/bin/g++-11
+  LLVM cmake config: /usr/lib/llvm-14/lib/cmake/llvm
+    usable from CMake: yes
+  Boost: #define BOOST_LIB_VERSION "1_74"
+  fmt: not found; build will compile fmt 9.1.0 into /homes/z/zha12746/bench/deps
+== machine
+  CPU threads to sweep: 1 8   RAM: 33.4 GB
+  GPU 0: NVIDIA GeForce RTX 3070, sm_86, 8.6 GB
+  work dir: /homes/z/zha12746/bench (filesystem: 142G free)
+  WORK_DIR needs ~6 GB (sources + builds); a per-user quota can be much smaller than
+  the filesystem's free space. Your quotas (if any):
+    Disk quotas for user zha12746 (uid 19111): 
+         Filesystem   space   quota   limit   grace   files   quota   limit   grace
+    footwork.eecg.toronto.edu:/nfs/ug/homes-1
+                      2680M   3072M   3072M               0       0       0        
+== graphs in /nfs/ug/groups/capstone_proj_2026F/input_graphs
+  friendster                 undirected  .gr
+  germany-osm                undirected  .gr .mtx .sym.ag .bin
+  hyperlink2012-host-new     directed    .gr .sgr
+  livejournal                directed    .gr .tgr .sgr .mtx .sym.mtx .sym.ag
+  usa-road-d                 undirected  .gr .mtx .sym.ag .bin
+[19:56:09] building galois gunrock mbq mlmq (CUDA arch: 86, 16 jobs)
+[19:56:09] galois: fetch b67f942
+[19:56:10] galois: configure
+[19:56:13] galois: compile CPU apps
+[19:56:13] galois: compile LonestarGPU apps
+[19:56:14] mbq: fetch 25d3583
+[19:56:14] mbq: fmt 9.1.0 source
+[19:56:14] mbq: galois configure
+[19:56:15] mbq: galois compile
+[19:56:16] mbq: astar configure
+[19:56:16] mbq: astar compile
+[19:56:16] mbq: astar-fixed configure
+[19:56:16] mbq: astar-fixed compile
+[19:56:18] mbq: rbp configure
+[19:56:18] mbq: rbp compile
+[19:56:18] mbq: MIS (mqMIS, /usr/bin/g++)
+[19:56:18] mbq: MISCheck (sequential)
+[19:56:21] mbq: no OpenCilk clang; PBBS's own MIS baseline is skipped
+[19:56:21] mlmq: fetch 77d81ab
+[19:56:21] mlmq: MLMQ SSSP_adaptive (sm_86)
+[19:56:32] mlmq: ADDS ads_int (sm_86)
+[19:56:37] results: /homes/z/zha12746/bench/results/ug63/results.csv (runs already in /homes/z/zha12746/bench/results/ug63/done.txt are skipped)
+[19:56:37] threads: 1 8; runs: 1 warm-up + 5 timed; timeout 600s
+[19:56:37] graph friendster (friendster, directed=no, 3612134270 edges)
+  skip: galois bfs: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: lonestargpu bfs: graph needs ~29.4 GB, GPU has 8.6 GB
+  skip: gunrock bfs: not built (/homes/z/zha12746/bench/build/gunrock/bin/bfs)
+  skip: mbq bfs: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: galois sssp: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: lonestargpu sssp: graph needs ~29.4 GB, GPU has 8.6 GB
+  skip: gunrock sssp: not built (/homes/z/zha12746/bench/build/gunrock/bin/sssp)
+  skip: mbq sssp: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: mlmq sssp: graph needs ~29.4 GB, GPU has 8.6 GB
+  skip: adds sssp: graph needs ~29.4 GB, GPU has 8.6 GB
+  skip: galois pr-pull: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: galois pr-push: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: lonestargpu pr: graph needs ~29.4 GB, GPU has 8.6 GB
+  skip: gunrock pr: not built (/homes/z/zha12746/bench/build/gunrock/bin/pr)
+  skip: mbq pr: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: mbq ppsp: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: mbq ppsp: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: mbq astar: no friendster.bin (road graphs only)
+  skip: galois mis: graph needs ~29.4 GB, RAM is 33.4 GB
+  skip: lonestargpu mis: graph needs ~29.4 GB, GPU has 8.6 GB
+  skip: mbq mis: friendster.sym.ag not in this folder
+[19:56:37] graph germany-osm (germany-osm, directed=no, 24738362 edges)
+  skip: gunrock bfs: not built (/homes/z/zha12746/bench/build/gunrock/bin/bfs)
+  lonestargpu default        sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_sssp_germany-osm_s0_d-_tgpu_-.r*.log, timeout 600s)
+  lonestargpu default        sssp   t=gpu  -                      run 0:         NA ms  TIMEOUT
+  skip: gunrock sssp: not built (/homes/z/zha12746/bench/build/gunrock/bin/sssp)
+  mbq         MQBucket       sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_sssp_germany-osm_s0_d-_t1_delta=8.r*.log, timeout 600s)
+  mbq         MQBucket       sssp   t=1    delta=8                run 0:        551 ms  ok
+  mbq         MQBucket       sssp   t=1    delta=8                run 1:        549 ms  -
+  mbq         MQBucket       sssp   t=1    delta=8                run 2:        552 ms  -
+  mbq         MQBucket       sssp   t=1    delta=8                run 3:        545 ms  -
+  mbq         MQBucket       sssp   t=1    delta=8                run 4:        545 ms  -
+  mbq         MQBucket       sssp   t=1    delta=8                run 5:        549 ms  -
+  mbq         MQBucket       sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_sssp_germany-osm_s0_d-_t8_delta=8.r*.log, timeout 600s)
+  mbq         MQBucket       sssp   t=8    delta=8                run 0:         95 ms  ok
+  mbq         MQBucket       sssp   t=8    delta=8                run 1:         95 ms  -
+  mbq         MQBucket       sssp   t=8    delta=8                run 2:         96 ms  -
+  mbq         MQBucket       sssp   t=8    delta=8                run 3:         96 ms  -
+  mbq         MQBucket       sssp   t=8    delta=8                run 4:         95 ms  -
+  mbq         MQBucket       sssp   t=8    delta=8                run 5:         95 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_sssp_germany-osm_s0_d-_t1_delta=11.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  sssp   t=1    delta=11               run 0:        920 ms  ok
+  mbq         deltaStepOBIM  sssp   t=1    delta=11               run 1:        920 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=11               run 2:        919 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=11               run 3:        922 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=11               run 4:        920 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=11               run 5:        918 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_sssp_germany-osm_s0_d-_t8_delta=11.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  sssp   t=8    delta=11               run 0:        146 ms  ok
+  mbq         deltaStepOBIM  sssp   t=8    delta=11               run 1:        147 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=11               run 2:        147 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=11               run 3:        148 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=11               run 4:        148 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=11               run 5:        146 ms  -
+  mlmq        adaptive       sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/mlmq_adaptive_sssp_germany-osm_s0_d-_tgpu_-.r*.log, timeout 600s)
+  mlmq        adaptive       sssp   t=gpu  -                      run 0:         NA ms  TIMEOUT
+  adds        default        sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/adds_default_sssp_germany-osm_s0_d-_tgpu_-.r*.log, timeout 600s)
+  adds        default        sssp   t=gpu  -                      run 0:     95.224 ms  ok
+  adds        default        sssp   t=gpu  -                      run 1:     95.275 ms  -
+  adds        default        sssp   t=gpu  -                      run 2:     95.220 ms  -
+  adds        default        sssp   t=gpu  -                      run 3:     95.136 ms  -
+  adds        default        sssp   t=gpu  -                      run 4:     95.171 ms  -
+  adds        default        sssp   t=gpu  -                      run 5:     94.990 ms  -
+  galois      pull-residual  pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_pull-residual_pr_germany-osm_s-_d-_t1_tol=1e-3.r*.log, timeout 600s)
+  galois      pull-residual  pr     t=1    tol=1e-3               run 0:       4174 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 1:       6693 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 2:       7094 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 3:       6749 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 4:       4169 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 5:       6691 ms  -
+  galois      pull-residual  pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_pull-residual_pr_germany-osm_s-_d-_t8_tol=1e-3.r*.log, timeout 600s)
+  galois      pull-residual  pr     t=8    tol=1e-3               run 0:       1136 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 1:        991 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 2:       1136 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 3:       1136 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 4:        990 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 5:        990 ms  -
+  galois      push-async     pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_push-async_pr_germany-osm_s-_d-_t1_tol=1e-3.r*.log, timeout 600s)
+  galois      push-async     pr     t=1    tol=1e-3               run 0:      14030 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 1:      14013 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 2:      14030 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 3:      14016 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 4:      14016 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 5:      14019 ms  -
+  galois      push-async     pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_push-async_pr_germany-osm_s-_d-_t8_tol=1e-3.r*.log, timeout 600s)
+  galois      push-async     pr     t=8    tol=1e-3               run 0:       4867 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 1:       4891 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 2:       5137 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 3:       6938 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 4:       6868 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 5:       6997 ms  -
+  lonestargpu default        pr     t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_pr_germany-osm_s-_d-_tgpu_x=1000.r*.log, timeout 600s)
+  lonestargpu default        pr     t=gpu  x=1000                 run 0:         NA ms  TIMEOUT
+  skip: gunrock pr: not built (/homes/z/zha12746/bench/build/gunrock/bin/pr)
+  mbq         MQBucket       pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_pr_germany-osm_s-_d-_t1_delta=21.r*.log, timeout 600s)
+  mbq         MQBucket       pr     t=1    delta=21               run 0:      20536 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 1:      20649 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 2:      20667 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 3:      20660 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 4:      20644 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 5:      20599 ms  -
+  mbq         MQBucket       pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_pr_germany-osm_s-_d-_t8_delta=21.r*.log, timeout 600s)
+  mbq         MQBucket       pr     t=8    delta=21               run 0:       3306 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 1:       3305 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 2:       3315 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 3:       3309 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 4:       3318 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 5:       3317 ms  -
+  mbq         OBIMPR         pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIMPR_pr_germany-osm_s-_d-_t1_delta=21.r*.log, timeout 600s)
+  mbq         OBIMPR         pr     t=1    delta=21               run 0:      19327 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 1:      19280 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 2:      19330 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 3:      19287 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 4:      19324 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 5:      19397 ms  -
+  mbq         OBIMPR         pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIMPR_pr_germany-osm_s-_d-_t8_delta=21.r*.log, timeout 600s)
+  mbq         OBIMPR         pr     t=8    delta=21               run 0:       3240 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 1:       3238 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 2:       3252 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 3:       3233 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 4:       3459 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 5:       3850 ms  -
+  mbq         MQBucket       ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_germany-osm_s4665057_d436940_t1_delta=9.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=1    delta=9                run 0:        530 ms  ok
+  mbq         MQBucket       ppsp   t=1    delta=9                run 1:        526 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=9                run 2:        525 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=9                run 3:        521 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=9                run 4:        522 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=9                run 5:        525 ms  -
+  mbq         MQBucket       ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_germany-osm_s4665057_d436940_t8_delta=9.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=8    delta=9                run 0:         98 ms  ok
+  mbq         MQBucket       ppsp   t=8    delta=9                run 1:         97 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=9                run 2:         98 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=9                run 3:         97 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=9                run 4:         97 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=9                run 5:         97 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_germany-osm_s4665057_d436940_t1_delta=11.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 0:        861 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 1:        856 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 2:        852 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 3:        854 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 4:        870 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 5:        856 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_germany-osm_s4665057_d436940_t8_delta=11.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 0:        137 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 1:        136 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 2:        137 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 3:        136 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 4:        137 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 5:        137 ms  -
+  mbq         MQBucket       ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_germany-osm_s4665057_d10228940_t1_delta=9.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=1    delta=9                run 0:        562 ms  ok
+  mbq         MQBucket       ppsp   t=1    delta=9                run 1:        563 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=9                run 2:        564 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=9                run 3:        561 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=9                run 4:        561 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=9                run 5:        562 ms  -
+  mbq         MQBucket       ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_germany-osm_s4665057_d10228940_t8_delta=9.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=8    delta=9                run 0:        108 ms  ok
+  mbq         MQBucket       ppsp   t=8    delta=9                run 1:        108 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=9                run 2:        107 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=9                run 3:        107 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=9                run 4:        108 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=9                run 5:        108 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_germany-osm_s4665057_d10228940_t1_delta=11.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 0:        921 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 1:        921 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 2:        922 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 3:        920 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 4:        930 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=11               run 5:        924 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_germany-osm_s4665057_d10228940_t8_delta=11.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 0:        148 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 1:        148 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 2:        148 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 3:        149 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 4:        149 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=11               run 5:        148 ms  -
+  mbq         astar-orig-Serial astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-Serial_astar_germany-osm_s4665057_d436940_t1_-.r*.log, timeout 600s)
+  mbq         astar-orig-Serial astar  t=1    -                      run 0:        170 ms  ok
+  mbq         astar-orig-Serial astar  t=1    -                      run 1:        170 ms  -
+  mbq         astar-orig-Serial astar  t=1    -                      run 2:        168 ms  -
+  mbq         astar-orig-Serial astar  t=1    -                      run 3:        169 ms  -
+  mbq         astar-orig-Serial astar  t=1    -                      run 4:        172 ms  -
+  mbq         astar-orig-Serial astar  t=1    -                      run 5:        170 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-MQBucket_astar_germany-osm_s4665057_d436940_t1_delta=11.r*.log, timeout 600s)
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 0:       1723 ms  PATH-DIFFERS
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 1:       2932 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 2:       1807 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 3:       1971 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 4:       3615 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 5:       3592 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-MQBucket_astar_germany-osm_s4665057_d436940_t8_delta=11.r*.log, timeout 600s)
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 0:        365 ms  PATH-DIFFERS
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 1:        406 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 2:        396 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 3:        359 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 4:        311 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 5:        383 ms  -
+  mbq         astar-fixed-Serial astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-Serial_astar_germany-osm_s4665057_d436940_t1_-.r*.log, timeout 600s)
+  mbq         astar-fixed-Serial astar  t=1    -                      run 0:        443 ms  ok
+  mbq         astar-fixed-Serial astar  t=1    -                      run 1:        445 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 2:        444 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 3:        445 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 4:        445 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 5:        445 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-MQBucket_astar_germany-osm_s4665057_d436940_t1_delta=11.r*.log, timeout 600s)
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 0:        355 ms  ok
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 1:        356 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 2:        354 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 3:        354 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 4:        354 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 5:        360 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-MQBucket_astar_germany-osm_s4665057_d436940_t8_delta=11.r*.log, timeout 600s)
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 0:         89 ms  ok
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 1:         90 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 2:         89 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 3:         89 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 4:         89 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 5:         89 ms  -
+  mbq         astar-orig-Serial astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-Serial_astar_germany-osm_s4665057_d10228940_t1_-.r*.log, timeout 600s)
+  mbq         astar-orig-Serial astar  t=1    -                      run 0:       4014 ms  ok
+  mbq         astar-orig-Serial astar  t=1    -                      run 1:       4017 ms  -
+  mbq         astar-orig-Serial astar  t=1    -                      run 2:       4071 ms  -
+  mbq         astar-orig-Serial astar  t=1    -                      run 3:       4021 ms  -
+  mbq         astar-orig-Serial astar  t=1    -                      run 4:       4014 ms  -
+  mbq         astar-orig-Serial astar  t=1    -                      run 5:       4023 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-MQBucket_astar_germany-osm_s4665057_d10228940_t1_delta=11.r*.log, timeout 600s)
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 0:       4718 ms  PATH-DIFFERS
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 1:       2962 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 2:       6045 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 3:       2522 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 4:       8761 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 5:       4998 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-MQBucket_astar_germany-osm_s4665057_d10228940_t8_delta=11.r*.log, timeout 600s)
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 0:        889 ms  PATH-DIFFERS
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 1:        746 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 2:        877 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 3:        831 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 4:        791 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 5:        767 ms  -
+  mbq         astar-fixed-Serial astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-Serial_astar_germany-osm_s4665057_d10228940_t1_-.r*.log, timeout 600s)
+  mbq         astar-fixed-Serial astar  t=1    -                      run 0:       1179 ms  ok
+  mbq         astar-fixed-Serial astar  t=1    -                      run 1:       1179 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 2:       1197 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 3:       1179 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 4:       1178 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 5:       1181 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-MQBucket_astar_germany-osm_s4665057_d10228940_t1_delta=11.r*.log, timeout 600s)
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 0:        921 ms  ok
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 1:        918 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 2:        922 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 3:        932 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 4:        920 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 5:        925 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-MQBucket_astar_germany-osm_s4665057_d10228940_t8_delta=11.r*.log, timeout 600s)
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 0:        211 ms  ok
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 1:        211 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 2:        212 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 3:        213 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 4:        212 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 5:        212 ms  -
+  galois      prio           mis    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_prio_mis_germany-osm_s-_d-_t1_-.r*.log, timeout 600s)
+  galois      prio           mis    t=1    -                      run 0:        363 ms  -
+  galois      prio           mis    t=1    -                      run 1:        359 ms  -
+  galois      prio           mis    t=1    -                      run 2:        370 ms  -
+  galois      prio           mis    t=1    -                      run 3:        357 ms  -
+  galois      prio           mis    t=1    -                      run 4:        366 ms  -
+  galois      prio           mis    t=1    -                      run 5:        362 ms  -
+  galois      prio           mis    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_prio_mis_germany-osm_s-_d-_t8_-.r*.log, timeout 600s)
+  galois      prio           mis    t=8    -                      run 0:         54 ms  -
+  galois      prio           mis    t=8    -                      run 1:         53 ms  -
+  galois      prio           mis    t=8    -                      run 2:         57 ms  -
+  galois      prio           mis    t=8    -                      run 3:         54 ms  -
+  galois      prio           mis    t=8    -                      run 4:         54 ms  -
+  galois      prio           mis    t=8    -                      run 5:         54 ms  -
+  lonestargpu default        mis    t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_mis_germany-osm_s-_d-_tgpu_-.r*.log, timeout 600s)
+  lonestargpu default        mis    t=gpu  -                      run 0:     19.220 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 1:      9.906 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 2:      9.851 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 3:      9.853 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 4:      9.785 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 5:      9.818 ms  -
+  mbq         mis-MQBucket   mis    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_mis-MQBucket_mis_germany-osm_t1.log, timeout 600s)
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 1:    252.200 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 2:    253.700 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 3:    249.500 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 4:    252.100 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 5:    252.600 ms  ok
+  mbq         mis-MQBucket   mis    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_mis-MQBucket_mis_germany-osm_t8.log, timeout 600s)
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 1:     97.900 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 2:    100.600 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 3:     99.400 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 4:    101.100 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 5:    101.200 ms  ok
+[20:39:19] graph hyperlink2012-host-new (hyperlink2012-host, directed=yes, 2043203933 edges)
+  galois      SyncTile       bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_SyncTile_bfs_hyperlink2012-host-new_s100640172_d-_t1_-.r*.log, timeout 600s)
+  galois      SyncTile       bfs    t=1    -                      run 0:      19253 ms  ok
+  galois      SyncTile       bfs    t=1    -                      run 1:      13005 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 2:      12256 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 3:      12032 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 4:      11804 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 5:      11626 ms  -
+  galois      SyncTile       bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_SyncTile_bfs_hyperlink2012-host-new_s100640172_d-_t8_-.r*.log, timeout 600s)
+  galois      SyncTile       bfs    t=8    -                      run 0:       3547 ms  ok
+  galois      SyncTile       bfs    t=8    -                      run 1:       3544 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 2:       3545 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 3:       3543 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 4:       3556 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 5:       3554 ms  -
+  skip: lonestargpu bfs: graph needs ~17.2 GB, GPU has 8.6 GB
+  skip: gunrock bfs: not built (/homes/z/zha12746/bench/build/gunrock/bin/bfs)
+  mbq         MQBucket       bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_bfs_hyperlink2012-host-new_s100640172_d-_t1_delta=0.r*.log, timeout 600s)
+  mbq         MQBucket       bfs    t=1    delta=0                run 0:      17590 ms  ok
+  mbq         MQBucket       bfs    t=1    delta=0                run 1:      17568 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 2:      17529 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 3:      17545 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 4:      17555 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 5:      17511 ms  -
+  mbq         MQBucket       bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_bfs_hyperlink2012-host-new_s100640172_d-_t8_delta=0.r*.log, timeout 600s)
+  mbq         MQBucket       bfs    t=8    delta=0                run 0:       3810 ms  ok
+  mbq         MQBucket       bfs    t=8    delta=0                run 1:       3809 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 2:       3815 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 3:       3807 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 4:       3840 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 5:       3813 ms  -
+  mbq         OBIM           bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIM_bfs_hyperlink2012-host-new_s100640172_d-_t1_delta=0.r*.log, timeout 600s)
+  mbq         OBIM           bfs    t=1    delta=0                run 0:      15447 ms  ok
+  mbq         OBIM           bfs    t=1    delta=0                run 1:      15443 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 2:      15373 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 3:      15390 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 4:      15421 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 5:      15391 ms  -
+  mbq         OBIM           bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIM_bfs_hyperlink2012-host-new_s100640172_d-_t8_delta=0.r*.log, timeout 600s)
+  mbq         OBIM           bfs    t=8    delta=0                run 0:       3833 ms  ok
+  mbq         OBIM           bfs    t=8    delta=0                run 1:       3863 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 2:       3884 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 3:       3861 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 4:       3857 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 5:       3837 ms  -
+  galois      deltaStep      sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_deltaStep_sssp_hyperlink2012-host-new_s100640172_d-_t1_delta=1.r*.log, timeout 600s)
+  galois      deltaStep      sssp   t=1    delta=1                run 0:      28485 ms  ok
+  galois      deltaStep      sssp   t=1    delta=1                run 1:      28462 ms  -
+  galois      deltaStep      sssp   t=1    delta=1                run 2:      28389 ms  -
+  galois      deltaStep      sssp   t=1    delta=1                run 3:      28356 ms  -
+  galois      deltaStep      sssp   t=1    delta=1                run 4:      28477 ms  -
+  galois      deltaStep      sssp   t=1    delta=1                run 5:      28448 ms  -
+  galois      deltaStep      sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_deltaStep_sssp_hyperlink2012-host-new_s100640172_d-_t8_delta=1.r*.log, timeout 600s)
+  galois      deltaStep      sssp   t=8    delta=1                run 0:       7080 ms  ok
+  galois      deltaStep      sssp   t=8    delta=1                run 1:       7276 ms  -
+  galois      deltaStep      sssp   t=8    delta=1                run 2:       7144 ms  -
+  galois      deltaStep      sssp   t=8    delta=1                run 3:       7030 ms  -
+  galois      deltaStep      sssp   t=8    delta=1                run 4:       7001 ms  -
+  galois      deltaStep      sssp   t=8    delta=1                run 5:       6570 ms  -
+  skip: lonestargpu sssp: graph needs ~17.2 GB, GPU has 8.6 GB
+  skip: gunrock sssp: not built (/homes/z/zha12746/bench/build/gunrock/bin/sssp)
+  mbq         MQBucket       sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_sssp_hyperlink2012-host-new_s100640172_d-_t1_delta=3.r*.log, timeout 600s)
+  mbq         MQBucket       sssp   t=1    delta=3                run 0:      30253 ms  ok
+  mbq         MQBucket       sssp   t=1    delta=3                run 1:      30175 ms  -
+  mbq         MQBucket       sssp   t=1    delta=3                run 2:      29984 ms  -
+  mbq         MQBucket       sssp   t=1    delta=3                run 3:      30308 ms  -
+  mbq         MQBucket       sssp   t=1    delta=3                run 4:      29956 ms  -
+  mbq         MQBucket       sssp   t=1    delta=3                run 5:      30099 ms  -
+  mbq         MQBucket       sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_sssp_hyperlink2012-host-new_s100640172_d-_t8_delta=3.r*.log, timeout 600s)
+  mbq         MQBucket       sssp   t=8    delta=3                run 0:       7339 ms  ok
+  mbq         MQBucket       sssp   t=8    delta=3                run 1:       7290 ms  -
+  mbq         MQBucket       sssp   t=8    delta=3                run 2:       7374 ms  -
+  mbq         MQBucket       sssp   t=8    delta=3                run 3:       7271 ms  -
+  mbq         MQBucket       sssp   t=8    delta=3                run 4:       7312 ms  -
+  mbq         MQBucket       sssp   t=8    delta=3                run 5:       7291 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_sssp_hyperlink2012-host-new_s100640172_d-_t1_delta=1.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  sssp   t=1    delta=1                run 0:      30629 ms  ok
+  mbq         deltaStepOBIM  sssp   t=1    delta=1                run 1:      30627 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=1                run 2:      30727 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=1                run 3:      30643 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=1                run 4:      30666 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=1                run 5:      30641 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_sssp_hyperlink2012-host-new_s100640172_d-_t8_delta=1.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  sssp   t=8    delta=1                run 0:       7200 ms  ok
+  mbq         deltaStepOBIM  sssp   t=8    delta=1                run 1:       7014 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=1                run 2:       6948 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=1                run 3:       7280 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=1                run 4:       7265 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=1                run 5:       7302 ms  -
+  skip: mlmq sssp: graph needs ~17.2 GB, GPU has 8.6 GB
+  skip: adds sssp: graph needs ~17.2 GB, GPU has 8.6 GB
+  skip: galois pr-pull: hyperlink2012-host.tgr not in this folder
+  galois      push-async     pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_push-async_pr_hyperlink2012-host-new_s-_d-_t1_tol=1e-3.r*.log, timeout 600s)
+  galois      push-async     pr     t=1    tol=1e-3               run 0:     373346 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 1:     373336 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 2:     373220 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 3:     373752 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 4:     374010 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 5:     374080 ms  -
+  galois      push-async     pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_push-async_pr_hyperlink2012-host-new_s-_d-_t8_tol=1e-3.r*.log, timeout 600s)
+  galois      push-async     pr     t=8    tol=1e-3               run 0:     114291 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 1:     114194 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 2:     114136 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 3:     114272 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 4:     113557 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 5:     114207 ms  -
+  skip: lonestargpu pr: graph needs ~17.2 GB, GPU has 8.6 GB
+  skip: gunrock pr: not built (/homes/z/zha12746/bench/build/gunrock/bin/pr)
+  mbq         MQBucket       pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_pr_hyperlink2012-host-new_s-_d-_t1_delta=21.r*.log, timeout 600s)
+  mbq         MQBucket       pr     t=1    delta=21               run 0:         NA ms  TIMEOUT
+  mbq         MQBucket       pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_pr_hyperlink2012-host-new_s-_d-_t8_delta=21.r*.log, timeout 600s)
+  mbq         MQBucket       pr     t=8    delta=21               run 0:     207561 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 1:     206811 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 2:     208015 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 3:     207514 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 4:     208312 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 5:     207458 ms  -
+  mbq         OBIMPR         pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIMPR_pr_hyperlink2012-host-new_s-_d-_t1_delta=20.r*.log, timeout 600s)
+  mbq         OBIMPR         pr     t=1    delta=20               run 0:         NA ms  TIMEOUT
+  mbq         OBIMPR         pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIMPR_pr_hyperlink2012-host-new_s-_d-_t8_delta=20.r*.log, timeout 600s)
+  mbq         OBIMPR         pr     t=8    delta=20               run 0:     200076 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 1:     199769 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 2:     199655 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 3:     199828 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 4:     200023 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 5:     199811 ms  -
+  mbq         MQBucket       ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_hyperlink2012-host-new_s100640172_d66776937_t1_delta=3.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=1    delta=3                run 0:      22890 ms  ok
+  mbq         MQBucket       ppsp   t=1    delta=3                run 1:      23078 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=3                run 2:      23090 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=3                run 3:      22539 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=3                run 4:      22872 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=3                run 5:      23371 ms  -
+  mbq         MQBucket       ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_hyperlink2012-host-new_s100640172_d66776937_t8_delta=3.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=8    delta=3                run 0:       5424 ms  ok
+  mbq         MQBucket       ppsp   t=8    delta=3                run 1:       5493 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=3                run 2:       5615 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=3                run 3:       5481 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=3                run 4:       5458 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=3                run 5:       5568 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_hyperlink2012-host-new_s100640172_d66776937_t1_delta=1.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 0:      26832 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 1:      26886 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 2:      26856 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 3:      26822 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 4:      26858 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 5:      26826 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_hyperlink2012-host-new_s100640172_d66776937_t8_delta=1.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 0:       6235 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 1:       5917 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 2:       5337 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 3:       6274 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 4:       5663 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 5:       5750 ms  -
+  mbq         MQBucket       ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_hyperlink2012-host-new_s100640172_d16937928_t1_delta=3.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=1    delta=3                run 0:      30258 ms  ok
+  mbq         MQBucket       ppsp   t=1    delta=3                run 1:      30125 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=3                run 2:      30211 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=3                run 3:      30240 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=3                run 4:      30221 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=3                run 5:      30283 ms  -
+  mbq         MQBucket       ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_hyperlink2012-host-new_s100640172_d16937928_t8_delta=3.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=8    delta=3                run 0:       7477 ms  ok
+  mbq         MQBucket       ppsp   t=8    delta=3                run 1:       7405 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=3                run 2:       7401 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=3                run 3:       7408 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=3                run 4:       7436 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=3                run 5:       7474 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_hyperlink2012-host-new_s100640172_d16937928_t1_delta=1.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 0:      31818 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 1:      31782 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 2:      31834 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 3:      31814 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 4:      31882 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=1                run 5:      31818 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_hyperlink2012-host-new_s100640172_d16937928_t8_delta=1.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 0:       7598 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 1:       7272 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 2:       7070 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 3:       7312 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 4:       7551 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=1                run 5:       7507 ms  -
+  skip: mbq astar: no hyperlink2012-host.bin (road graphs only)
+  skip: galois mis: graph needs ~31.9 GB, RAM is 33.4 GB
+  skip: lonestargpu mis: graph needs ~31.9 GB, GPU has 8.6 GB
+  skip: mbq mis: hyperlink2012-host.sym.ag not in this folder
+[03:08:26] graph livejournal (livejournal, directed=yes, 68475391 edges)
+  galois      SyncTile       bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_SyncTile_bfs_livejournal_s0_d-_t1_-.r*.log, timeout 600s)
+  galois      SyncTile       bfs    t=1    -                      run 0:        428 ms  ok
+  galois      SyncTile       bfs    t=1    -                      run 1:        427 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 2:        428 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 3:        429 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 4:        428 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 5:        427 ms  -
+  galois      SyncTile       bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_SyncTile_bfs_livejournal_s0_d-_t8_-.r*.log, timeout 600s)
+  galois      SyncTile       bfs    t=8    -                      run 0:         86 ms  ok
+  galois      SyncTile       bfs    t=8    -                      run 1:         85 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 2:         85 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 3:         85 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 4:         84 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 5:         84 ms  -
+  lonestargpu default        bfs    t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_bfs_livejournal_s0_d-_tgpu_-.r*.log, timeout 600s)
+  lonestargpu default        bfs    t=gpu  -                      run 0:         NA ms  TIMEOUT
+  skip: gunrock bfs: not built (/homes/z/zha12746/bench/build/gunrock/bin/bfs)
+  mbq         MQBucket       bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_bfs_livejournal_s0_d-_t1_delta=0.r*.log, timeout 600s)
+  mbq         MQBucket       bfs    t=1    delta=0                run 0:        408 ms  ok
+  mbq         MQBucket       bfs    t=1    delta=0                run 1:        411 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 2:        409 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 3:        411 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 4:        409 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 5:        412 ms  -
+  mbq         MQBucket       bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_bfs_livejournal_s0_d-_t8_delta=0.r*.log, timeout 600s)
+  mbq         MQBucket       bfs    t=8    delta=0                run 0:         83 ms  ok
+  mbq         MQBucket       bfs    t=8    delta=0                run 1:         83 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 2:         83 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 3:         83 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 4:         82 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 5:         83 ms  -
+  mbq         OBIM           bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIM_bfs_livejournal_s0_d-_t1_delta=0.r*.log, timeout 600s)
+  mbq         OBIM           bfs    t=1    delta=0                run 0:        614 ms  ok
+  mbq         OBIM           bfs    t=1    delta=0                run 1:        612 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 2:        614 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 3:        615 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 4:        614 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 5:        614 ms  -
+  mbq         OBIM           bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIM_bfs_livejournal_s0_d-_t8_delta=0.r*.log, timeout 600s)
+  mbq         OBIM           bfs    t=8    delta=0                run 0:        105 ms  ok
+  mbq         OBIM           bfs    t=8    delta=0                run 1:        106 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 2:        105 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 3:        105 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 4:        104 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 5:        105 ms  -
+  galois      deltaStep      sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_deltaStep_sssp_livejournal_s0_d-_t1_delta=0.r*.log, timeout 600s)
+  galois      deltaStep      sssp   t=1    delta=0                run 0:       1450 ms  ok
+  galois      deltaStep      sssp   t=1    delta=0                run 1:       1447 ms  -
+  galois      deltaStep      sssp   t=1    delta=0                run 2:       1444 ms  -
+  galois      deltaStep      sssp   t=1    delta=0                run 3:       1466 ms  -
+  galois      deltaStep      sssp   t=1    delta=0                run 4:       1450 ms  -
+  galois      deltaStep      sssp   t=1    delta=0                run 5:       1446 ms  -
+  galois      deltaStep      sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_deltaStep_sssp_livejournal_s0_d-_t8_delta=0.r*.log, timeout 600s)
+  galois      deltaStep      sssp   t=8    delta=0                run 0:        244 ms  ok
+  galois      deltaStep      sssp   t=8    delta=0                run 1:        241 ms  -
+  galois      deltaStep      sssp   t=8    delta=0                run 2:        241 ms  -
+  galois      deltaStep      sssp   t=8    delta=0                run 3:        247 ms  -
+  galois      deltaStep      sssp   t=8    delta=0                run 4:        245 ms  -
+  galois      deltaStep      sssp   t=8    delta=0                run 5:        244 ms  -
+  lonestargpu default        sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_sssp_livejournal_s0_d-_tgpu_-.r*.log, timeout 600s)
+  lonestargpu default        sssp   t=gpu  -                      run 0:         NA ms  TIMEOUT
+  skip: gunrock sssp: not built (/homes/z/zha12746/bench/build/gunrock/bin/sssp)
+  mbq         MQBucket       sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_sssp_livejournal_s0_d-_t1_delta=4.r*.log, timeout 600s)
+  mbq         MQBucket       sssp   t=1    delta=4                run 0:       1059 ms  ok
+  mbq         MQBucket       sssp   t=1    delta=4                run 1:       1064 ms  -
+  mbq         MQBucket       sssp   t=1    delta=4                run 2:       1065 ms  -
+  mbq         MQBucket       sssp   t=1    delta=4                run 3:       1063 ms  -
+  mbq         MQBucket       sssp   t=1    delta=4                run 4:       1063 ms  -
+  mbq         MQBucket       sssp   t=1    delta=4                run 5:       1063 ms  -
+  mbq         MQBucket       sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_sssp_livejournal_s0_d-_t8_delta=4.r*.log, timeout 600s)
+  mbq         MQBucket       sssp   t=8    delta=4                run 0:        235 ms  ok
+  mbq         MQBucket       sssp   t=8    delta=4                run 1:        235 ms  -
+  mbq         MQBucket       sssp   t=8    delta=4                run 2:        235 ms  -
+  mbq         MQBucket       sssp   t=8    delta=4                run 3:        235 ms  -
+  mbq         MQBucket       sssp   t=8    delta=4                run 4:        233 ms  -
+  mbq         MQBucket       sssp   t=8    delta=4                run 5:        234 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_sssp_livejournal_s0_d-_t1_delta=0.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  sssp   t=1    delta=0                run 0:       1559 ms  ok
+  mbq         deltaStepOBIM  sssp   t=1    delta=0                run 1:       1560 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=0                run 2:       1560 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=0                run 3:       1565 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=0                run 4:       1561 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=0                run 5:       1565 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_sssp_livejournal_s0_d-_t8_delta=0.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  sssp   t=8    delta=0                run 0:        258 ms  ok
+  mbq         deltaStepOBIM  sssp   t=8    delta=0                run 1:        257 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=0                run 2:        260 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=0                run 3:        255 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=0                run 4:        256 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=0                run 5:        259 ms  -
+  mlmq        adaptive       sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/mlmq_adaptive_sssp_livejournal_s0_d-_tgpu_-.r*.log, timeout 600s)
+  mlmq        adaptive       sssp   t=gpu  -                      run 0:         NA ms  TIMEOUT
+  adds        default        sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/adds_default_sssp_livejournal_s0_d-_tgpu_-.r*.log, timeout 600s)
+  adds        default        sssp   t=gpu  -                      run 0:         NA ms  TIMEOUT
+  galois      pull-residual  pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_pull-residual_pr_livejournal_s-_d-_t1_tol=1e-3.r*.log, timeout 600s)
+  galois      pull-residual  pr     t=1    tol=1e-3               run 0:      10488 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 1:      10490 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 2:      10485 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 3:      10475 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 4:      10481 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 5:      10526 ms  -
+  galois      pull-residual  pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_pull-residual_pr_livejournal_s-_d-_t8_tol=1e-3.r*.log, timeout 600s)
+  galois      pull-residual  pr     t=8    tol=1e-3               run 0:       1948 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 1:       1948 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 2:       1959 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 3:       1970 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 4:       1992 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 5:       2060 ms  -
+  galois      push-async     pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_push-async_pr_livejournal_s-_d-_t1_tol=1e-3.r*.log, timeout 600s)
+  galois      push-async     pr     t=1    tol=1e-3               run 0:      18817 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 1:      18869 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 2:      18327 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 3:      18839 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 4:      18920 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 5:      18819 ms  -
+  galois      push-async     pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_push-async_pr_livejournal_s-_d-_t8_tol=1e-3.r*.log, timeout 600s)
+  galois      push-async     pr     t=8    tol=1e-3               run 0:       3718 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 1:       3753 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 2:       3770 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 3:       3683 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 4:       3880 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 5:       4176 ms  -
+  lonestargpu default        pr     t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_pr_livejournal_s-_d-_tgpu_x=1000.r*.log, timeout 600s)
+  lonestargpu default        pr     t=gpu  x=1000                 run 0:         NA ms  TIMEOUT
+  skip: gunrock pr: not built (/homes/z/zha12746/bench/build/gunrock/bin/pr)
+  mbq         MQBucket       pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_pr_livejournal_s-_d-_t1_delta=20.r*.log, timeout 600s)
+  mbq         MQBucket       pr     t=1    delta=20               run 0:      34582 ms  -
+  mbq         MQBucket       pr     t=1    delta=20               run 1:      38373 ms  -
+  mbq         MQBucket       pr     t=1    delta=20               run 2:      38240 ms  -
+  mbq         MQBucket       pr     t=1    delta=20               run 3:      34784 ms  -
+  mbq         MQBucket       pr     t=1    delta=20               run 4:      38189 ms  -
+  mbq         MQBucket       pr     t=1    delta=20               run 5:      34142 ms  -
+  mbq         MQBucket       pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_pr_livejournal_s-_d-_t8_delta=20.r*.log, timeout 600s)
+  mbq         MQBucket       pr     t=8    delta=20               run 0:       7351 ms  -
+  mbq         MQBucket       pr     t=8    delta=20               run 1:       6805 ms  -
+  mbq         MQBucket       pr     t=8    delta=20               run 2:       7245 ms  -
+  mbq         MQBucket       pr     t=8    delta=20               run 3:       6816 ms  -
+  mbq         MQBucket       pr     t=8    delta=20               run 4:       6832 ms  -
+  mbq         MQBucket       pr     t=8    delta=20               run 5:       7243 ms  -
+  mbq         OBIMPR         pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIMPR_pr_livejournal_s-_d-_t1_delta=20.r*.log, timeout 600s)
+  mbq         OBIMPR         pr     t=1    delta=20               run 0:      32247 ms  -
+  mbq         OBIMPR         pr     t=1    delta=20               run 1:      35049 ms  -
+  mbq         OBIMPR         pr     t=1    delta=20               run 2:      35004 ms  -
+  mbq         OBIMPR         pr     t=1    delta=20               run 3:      32079 ms  -
+  mbq         OBIMPR         pr     t=1    delta=20               run 4:      35050 ms  -
+  mbq         OBIMPR         pr     t=1    delta=20               run 5:      32236 ms  -
+  mbq         OBIMPR         pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIMPR_pr_livejournal_s-_d-_t8_delta=20.r*.log, timeout 600s)
+  mbq         OBIMPR         pr     t=8    delta=20               run 0:       6528 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 1:       6220 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 2:       6180 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 3:       6569 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 4:       6711 ms  -
+  mbq         OBIMPR         pr     t=8    delta=20               run 5:       6806 ms  -
+  mbq         MQBucket       ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_livejournal_s834180_d632586_t1_delta=4.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=1    delta=4                run 0:       1028 ms  ok
+  mbq         MQBucket       ppsp   t=1    delta=4                run 1:       1025 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=4                run 2:       1031 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=4                run 3:       1031 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=4                run 4:       1022 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=4                run 5:       1014 ms  -
+  mbq         MQBucket       ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_livejournal_s834180_d632586_t8_delta=4.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=8    delta=4                run 0:        221 ms  ok
+  mbq         MQBucket       ppsp   t=8    delta=4                run 1:        218 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=4                run 2:        221 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=4                run 3:        219 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=4                run 4:        219 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=4                run 5:        217 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_livejournal_s834180_d632586_t1_delta=0.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 0:       1394 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 1:       1398 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 2:       1393 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 3:       1396 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 4:       1396 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 5:       1399 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_livejournal_s834180_d632586_t8_delta=0.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 0:        225 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 1:        225 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 2:        224 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 3:        226 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 4:        223 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 5:        224 ms  -
+  mbq         MQBucket       ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_livejournal_s834180_d4846050_t1_delta=4.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=1    delta=4                run 0:       1153 ms  ok
+  mbq         MQBucket       ppsp   t=1    delta=4                run 1:       1151 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=4                run 2:       1149 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=4                run 3:       1156 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=4                run 4:       1147 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=4                run 5:       1164 ms  -
+  mbq         MQBucket       ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_livejournal_s834180_d4846050_t8_delta=4.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=8    delta=4                run 0:        242 ms  ok
+  mbq         MQBucket       ppsp   t=8    delta=4                run 1:        252 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=4                run 2:        245 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=4                run 3:        244 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=4                run 4:        246 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=4                run 5:        243 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_livejournal_s834180_d4846050_t1_delta=0.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 0:       1587 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 1:       1584 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 2:       1586 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 3:       1584 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 4:       1593 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=0                run 5:       1583 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_livejournal_s834180_d4846050_t8_delta=0.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 0:        258 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 1:        260 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 2:        259 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 3:        259 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 4:        258 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=0                run 5:        259 ms  -
+  skip: mbq astar: no livejournal.bin (road graphs only)
+  galois      prio           mis    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_prio_mis_livejournal_s-_d-_t1_-.r*.log, timeout 600s)
+  galois      prio           mis    t=1    -                      run 0:       2753 ms  -
+  galois      prio           mis    t=1    -                      run 1:       2605 ms  -
+  galois      prio           mis    t=1    -                      run 2:       2677 ms  -
+  galois      prio           mis    t=1    -                      run 3:       2736 ms  -
+  galois      prio           mis    t=1    -                      run 4:       2742 ms  -
+  galois      prio           mis    t=1    -                      run 5:       2654 ms  -
+  galois      prio           mis    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_prio_mis_livejournal_s-_d-_t8_-.r*.log, timeout 600s)
+  galois      prio           mis    t=8    -                      run 0:        385 ms  -
+  galois      prio           mis    t=8    -                      run 1:        386 ms  -
+  galois      prio           mis    t=8    -                      run 2:        386 ms  -
+  galois      prio           mis    t=8    -                      run 3:        385 ms  -
+  galois      prio           mis    t=8    -                      run 4:        382 ms  -
+  galois      prio           mis    t=8    -                      run 5:        359 ms  -
+  lonestargpu default        mis    t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_mis_livejournal_s-_d-_tgpu_-.r*.log, timeout 600s)
+  lonestargpu default        mis    t=gpu  -                      run 0:     61.939 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 1:     52.536 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 2:     52.307 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 3:     52.980 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 4:     53.738 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 5:     52.952 ms  -
+  mbq         mis-MQBucket   mis    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_mis-MQBucket_mis_livejournal_t1.log, timeout 600s)
+  mbq         mis-MQBucket   mis    t=1    delta=11               run 1:    312.900 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=11               run 2:    314.300 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=11               run 3:    313.600 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=11               run 4:    313.500 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=11               run 5:    313.200 ms  ok
+  mbq         mis-MQBucket   mis    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_mis-MQBucket_mis_livejournal_t8.log, timeout 600s)
+  mbq         mis-MQBucket   mis    t=8    delta=11               run 1:     81.200 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=11               run 2:     81.700 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=11               run 3:     81.200 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=11               run 4:     80.600 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=11               run 5:     80.100 ms  ok
+[04:13:54] graph usa-road-d (usa-road-d, directed=no, 57708624 edges)
+  galois      SyncTile       bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_SyncTile_bfs_usa-road-d_s0_d-_t1_-.r*.log, timeout 600s)
+  galois      SyncTile       bfs    t=1    -                      run 0:        650 ms  ok
+  galois      SyncTile       bfs    t=1    -                      run 1:        661 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 2:        651 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 3:        652 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 4:        656 ms  -
+  galois      SyncTile       bfs    t=1    -                      run 5:        652 ms  -
+  galois      SyncTile       bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_SyncTile_bfs_usa-road-d_s0_d-_t8_-.r*.log, timeout 600s)
+  galois      SyncTile       bfs    t=8    -                      run 0:        194 ms  ok
+  galois      SyncTile       bfs    t=8    -                      run 1:        195 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 2:        194 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 3:        195 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 4:        195 ms  -
+  galois      SyncTile       bfs    t=8    -                      run 5:        194 ms  -
+  lonestargpu default        bfs    t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_bfs_usa-road-d_s0_d-_tgpu_-.r*.log, timeout 600s)
+  lonestargpu default        bfs    t=gpu  -                      run 0:         NA ms  TIMEOUT
+  skip: gunrock bfs: not built (/homes/z/zha12746/bench/build/gunrock/bin/bfs)
+  mbq         MQBucket       bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_bfs_usa-road-d_s0_d-_t1_delta=0.r*.log, timeout 600s)
+  mbq         MQBucket       bfs    t=1    delta=0                run 0:       1143 ms  ok
+  mbq         MQBucket       bfs    t=1    delta=0                run 1:       1133 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 2:       1135 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 3:       1132 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 4:       1135 ms  -
+  mbq         MQBucket       bfs    t=1    delta=0                run 5:       1134 ms  -
+  mbq         MQBucket       bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_bfs_usa-road-d_s0_d-_t8_delta=0.r*.log, timeout 600s)
+  mbq         MQBucket       bfs    t=8    delta=0                run 0:        255 ms  ok
+  mbq         MQBucket       bfs    t=8    delta=0                run 1:        334 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 2:        330 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 3:        336 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 4:        333 ms  -
+  mbq         MQBucket       bfs    t=8    delta=0                run 5:        328 ms  -
+  mbq         OBIM           bfs    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIM_bfs_usa-road-d_s0_d-_t1_delta=0.r*.log, timeout 600s)
+  mbq         OBIM           bfs    t=1    delta=0                run 0:       1328 ms  ok
+  mbq         OBIM           bfs    t=1    delta=0                run 1:       1327 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 2:       1326 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 3:       1327 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 4:       1329 ms  -
+  mbq         OBIM           bfs    t=1    delta=0                run 5:       1329 ms  -
+  mbq         OBIM           bfs    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIM_bfs_usa-road-d_s0_d-_t8_delta=0.r*.log, timeout 600s)
+  mbq         OBIM           bfs    t=8    delta=0                run 0:        224 ms  ok
+  mbq         OBIM           bfs    t=8    delta=0                run 1:        224 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 2:        224 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 3:        224 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 4:        225 ms  -
+  mbq         OBIM           bfs    t=8    delta=0                run 5:        224 ms  -
+  galois      deltaStep      sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_deltaStep_sssp_usa-road-d_s0_d-_t1_delta=14.r*.log, timeout 600s)
+  galois      deltaStep      sssp   t=1    delta=14               run 0:       1473 ms  ok
+  galois      deltaStep      sssp   t=1    delta=14               run 1:       1480 ms  -
+  galois      deltaStep      sssp   t=1    delta=14               run 2:       1477 ms  -
+  galois      deltaStep      sssp   t=1    delta=14               run 3:       1475 ms  -
+  galois      deltaStep      sssp   t=1    delta=14               run 4:       1473 ms  -
+  galois      deltaStep      sssp   t=1    delta=14               run 5:       1473 ms  -
+  galois      deltaStep      sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_deltaStep_sssp_usa-road-d_s0_d-_t8_delta=14.r*.log, timeout 600s)
+  galois      deltaStep      sssp   t=8    delta=14               run 0:        239 ms  ok
+  galois      deltaStep      sssp   t=8    delta=14               run 1:        237 ms  -
+  galois      deltaStep      sssp   t=8    delta=14               run 2:        238 ms  -
+  galois      deltaStep      sssp   t=8    delta=14               run 3:        237 ms  -
+  galois      deltaStep      sssp   t=8    delta=14               run 4:        238 ms  -
+  galois      deltaStep      sssp   t=8    delta=14               run 5:        239 ms  -
+  lonestargpu default        sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_sssp_usa-road-d_s0_d-_tgpu_-.r*.log, timeout 600s)
+  lonestargpu default        sssp   t=gpu  -                      run 0:         NA ms  TIMEOUT
+  skip: gunrock sssp: not built (/homes/z/zha12746/bench/build/gunrock/bin/sssp)
+  mbq         MQBucket       sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_sssp_usa-road-d_s0_d-_t1_delta=11.r*.log, timeout 600s)
+  mbq         MQBucket       sssp   t=1    delta=11               run 0:       1082 ms  ok
+  mbq         MQBucket       sssp   t=1    delta=11               run 1:       1083 ms  -
+  mbq         MQBucket       sssp   t=1    delta=11               run 2:       1083 ms  -
+  mbq         MQBucket       sssp   t=1    delta=11               run 3:       1096 ms  -
+  mbq         MQBucket       sssp   t=1    delta=11               run 4:       1090 ms  -
+  mbq         MQBucket       sssp   t=1    delta=11               run 5:       1084 ms  -
+  mbq         MQBucket       sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_sssp_usa-road-d_s0_d-_t8_delta=11.r*.log, timeout 600s)
+  mbq         MQBucket       sssp   t=8    delta=11               run 0:        222 ms  ok
+  mbq         MQBucket       sssp   t=8    delta=11               run 1:        220 ms  -
+  mbq         MQBucket       sssp   t=8    delta=11               run 2:        218 ms  -
+  mbq         MQBucket       sssp   t=8    delta=11               run 3:        219 ms  -
+  mbq         MQBucket       sssp   t=8    delta=11               run 4:        221 ms  -
+  mbq         MQBucket       sssp   t=8    delta=11               run 5:        217 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_sssp_usa-road-d_s0_d-_t1_delta=14.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  sssp   t=1    delta=14               run 0:       1678 ms  ok
+  mbq         deltaStepOBIM  sssp   t=1    delta=14               run 1:       1685 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=14               run 2:       1683 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=14               run 3:       1682 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=14               run 4:       1680 ms  -
+  mbq         deltaStepOBIM  sssp   t=1    delta=14               run 5:       1683 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_sssp_usa-road-d_s0_d-_t8_delta=14.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  sssp   t=8    delta=14               run 0:        278 ms  ok
+  mbq         deltaStepOBIM  sssp   t=8    delta=14               run 1:        275 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=14               run 2:        277 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=14               run 3:        273 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=14               run 4:        281 ms  -
+  mbq         deltaStepOBIM  sssp   t=8    delta=14               run 5:        273 ms  -
+  mlmq        adaptive       sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/mlmq_adaptive_sssp_usa-road-d_s0_d-_tgpu_-.r*.log, timeout 600s)
+  mlmq        adaptive       sssp   t=gpu  -                      run 0:         NA ms  TIMEOUT
+  adds        default        sssp   t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/adds_default_sssp_usa-road-d_s0_d-_tgpu_-.r*.log, timeout 600s)
+  adds        default        sssp   t=gpu  -                      run 0:    124.253 ms  ok
+  adds        default        sssp   t=gpu  -                      run 1:    125.229 ms  -
+  adds        default        sssp   t=gpu  -                      run 2:    125.041 ms  -
+  adds        default        sssp   t=gpu  -                      run 3:    124.634 ms  -
+  adds        default        sssp   t=gpu  -                      run 4:    124.868 ms  -
+  adds        default        sssp   t=gpu  -                      run 5:    127.021 ms  -
+  galois      pull-residual  pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_pull-residual_pr_usa-road-d_s-_d-_t1_tol=1e-3.r*.log, timeout 600s)
+  galois      pull-residual  pr     t=1    tol=1e-3               run 0:       8195 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 1:       8215 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 2:      12729 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 3:       8212 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 4:       8201 ms  -
+  galois      pull-residual  pr     t=1    tol=1e-3               run 5:      12436 ms  -
+  galois      pull-residual  pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_pull-residual_pr_usa-road-d_s-_d-_t8_tol=1e-3.r*.log, timeout 600s)
+  galois      pull-residual  pr     t=8    tol=1e-3               run 0:       1680 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 1:       1918 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 2:       1913 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 3:       1918 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 4:       2006 ms  -
+  galois      pull-residual  pr     t=8    tol=1e-3               run 5:       2412 ms  -
+  galois      push-async     pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_push-async_pr_usa-road-d_s-_d-_t1_tol=1e-3.r*.log, timeout 600s)
+  galois      push-async     pr     t=1    tol=1e-3               run 0:      22240 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 1:      22246 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 2:      22631 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 3:      22231 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 4:      22315 ms  -
+  galois      push-async     pr     t=1    tol=1e-3               run 5:      22244 ms  -
+  galois      push-async     pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_push-async_pr_usa-road-d_s-_d-_t8_tol=1e-3.r*.log, timeout 600s)
+  galois      push-async     pr     t=8    tol=1e-3               run 0:      10221 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 1:      14610 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 2:      14542 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 3:      14694 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 4:      14565 ms  -
+  galois      push-async     pr     t=8    tol=1e-3               run 5:      14593 ms  -
+  lonestargpu default        pr     t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_pr_usa-road-d_s-_d-_tgpu_x=1000.r*.log, timeout 600s)
+  lonestargpu default        pr     t=gpu  x=1000                 run 0:         NA ms  TIMEOUT
+  skip: gunrock pr: not built (/homes/z/zha12746/bench/build/gunrock/bin/pr)
+  mbq         MQBucket       pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_pr_usa-road-d_s-_d-_t1_delta=21.r*.log, timeout 600s)
+  mbq         MQBucket       pr     t=1    delta=21               run 0:      59538 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 1:      59121 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 2:      58047 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 3:      57815 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 4:      57352 ms  -
+  mbq         MQBucket       pr     t=1    delta=21               run 5:      59071 ms  -
+  mbq         MQBucket       pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_pr_usa-road-d_s-_d-_t8_delta=21.r*.log, timeout 600s)
+  mbq         MQBucket       pr     t=8    delta=21               run 0:      11929 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 1:      11904 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 2:      11876 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 3:      11893 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 4:      11897 ms  -
+  mbq         MQBucket       pr     t=8    delta=21               run 5:      11903 ms  -
+  mbq         OBIMPR         pr     t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIMPR_pr_usa-road-d_s-_d-_t1_delta=21.r*.log, timeout 600s)
+  mbq         OBIMPR         pr     t=1    delta=21               run 0:      31625 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 1:      31428 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 2:      31267 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 3:      31538 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 4:      31171 ms  -
+  mbq         OBIMPR         pr     t=1    delta=21               run 5:      31436 ms  -
+  mbq         OBIMPR         pr     t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_OBIMPR_pr_usa-road-d_s-_d-_t8_delta=21.r*.log, timeout 600s)
+  mbq         OBIMPR         pr     t=8    delta=21               run 0:       5948 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 1:       6858 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 2:       8055 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 3:       7908 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 4:       7955 ms  -
+  mbq         OBIMPR         pr     t=8    delta=21               run 5:       8014 ms  -
+  mbq         MQBucket       ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_usa-road-d_s6710139_d11203545_t1_delta=12.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=1    delta=12               run 0:        670 ms  ok
+  mbq         MQBucket       ppsp   t=1    delta=12               run 1:        652 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=12               run 2:        651 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=12               run 3:        667 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=12               run 4:        644 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=12               run 5:        693 ms  -
+  mbq         MQBucket       ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_usa-road-d_s6710139_d11203545_t8_delta=12.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=8    delta=12               run 0:        117 ms  ok
+  mbq         MQBucket       ppsp   t=8    delta=12               run 1:        115 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=12               run 2:        115 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=12               run 3:        116 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=12               run 4:        117 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=12               run 5:        115 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_usa-road-d_s6710139_d11203545_t1_delta=14.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 0:        883 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 1:        883 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 2:        883 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 3:        882 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 4:        886 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 5:        893 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_usa-road-d_s6710139_d11203545_t8_delta=14.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 0:        149 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 1:        149 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 2:        149 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 3:        149 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 4:        149 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 5:        151 ms  -
+  mbq         MQBucket       ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_usa-road-d_s6710139_d9159207_t1_delta=12.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=1    delta=12               run 0:       1164 ms  ok
+  mbq         MQBucket       ppsp   t=1    delta=12               run 1:       1126 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=12               run 2:       1141 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=12               run 3:       1116 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=12               run 4:       1100 ms  -
+  mbq         MQBucket       ppsp   t=1    delta=12               run 5:       1116 ms  -
+  mbq         MQBucket       ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_MQBucket_ppsp_usa-road-d_s6710139_d9159207_t8_delta=12.r*.log, timeout 600s)
+  mbq         MQBucket       ppsp   t=8    delta=12               run 0:        213 ms  ok
+  mbq         MQBucket       ppsp   t=8    delta=12               run 1:        208 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=12               run 2:        205 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=12               run 3:        205 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=12               run 4:        205 ms  -
+  mbq         MQBucket       ppsp   t=8    delta=12               run 5:        205 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_usa-road-d_s6710139_d9159207_t1_delta=14.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 0:       1572 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 1:       1576 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 2:       1586 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 3:       1571 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 4:       1575 ms  -
+  mbq         deltaStepOBIM  ppsp   t=1    delta=14               run 5:       1567 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_deltaStepOBIM_ppsp_usa-road-d_s6710139_d9159207_t8_delta=14.r*.log, timeout 600s)
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 0:        265 ms  ok
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 1:        267 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 2:        266 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 3:        264 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 4:        264 ms  -
+  mbq         deltaStepOBIM  ppsp   t=8    delta=14               run 5:        266 ms  -
+  mbq         astar-orig-Serial astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-Serial_astar_usa-road-d_s6710139_d11203545_t1_-.r*.log, timeout 600s)
+  mbq         astar-orig-Serial astar  t=1    -                      run 0:         NA ms  TIMEOUT
+  mbq         astar-orig-MQBucket astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-MQBucket_astar_usa-road-d_s6710139_d11203545_t1_delta=11.r*.log, timeout 600s)
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 0:      15009 ms  no-serial-reference
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 1:      17578 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 2:         NA ms  TIMEOUT
+  mbq         astar-orig-MQBucket astar  t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-MQBucket_astar_usa-road-d_s6710139_d11203545_t8_delta=11.r*.log, timeout 600s)
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 0:        893 ms  no-serial-reference
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 1:       1267 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 2:        781 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 3:       1125 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 4:       1045 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 5:       1060 ms  -
+  mbq         astar-fixed-Serial astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-Serial_astar_usa-road-d_s6710139_d11203545_t1_-.r*.log, timeout 600s)
+  mbq         astar-fixed-Serial astar  t=1    -                      run 0:        578 ms  ok
+  mbq         astar-fixed-Serial astar  t=1    -                      run 1:        577 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 2:        577 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 3:        577 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 4:        576 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 5:        575 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-MQBucket_astar_usa-road-d_s6710139_d11203545_t1_delta=11.r*.log, timeout 600s)
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 0:        497 ms  ok
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 1:        498 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 2:        495 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 3:        496 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 4:        494 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 5:        493 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-MQBucket_astar_usa-road-d_s6710139_d11203545_t8_delta=11.r*.log, timeout 600s)
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 0:        125 ms  ok
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 1:        124 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 2:        125 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 3:        124 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 4:        124 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 5:        125 ms  -
+  mbq         astar-orig-Serial astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-Serial_astar_usa-road-d_s6710139_d9159207_t1_-.r*.log, timeout 600s)
+  mbq         astar-orig-Serial astar  t=1    -                      run 0:         NA ms  TIMEOUT
+  mbq         astar-orig-MQBucket astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-MQBucket_astar_usa-road-d_s6710139_d9159207_t1_delta=11.r*.log, timeout 600s)
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 0:     290470 ms  no-serial-reference
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 1:     141914 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 2:      61397 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 3:     164838 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 4:     100552 ms  -
+  mbq         astar-orig-MQBucket astar  t=1    delta=11               run 5:         NA ms  TIMEOUT
+  mbq         astar-orig-MQBucket astar  t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-orig-MQBucket_astar_usa-road-d_s6710139_d9159207_t8_delta=11.r*.log, timeout 600s)
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 0:      54060 ms  no-serial-reference
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 1:      57812 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 2:      68287 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 3:      61152 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 4:      58174 ms  -
+  mbq         astar-orig-MQBucket astar  t=8    delta=11               run 5:      71884 ms  -
+  mbq         astar-fixed-Serial astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-Serial_astar_usa-road-d_s6710139_d9159207_t1_-.r*.log, timeout 600s)
+  mbq         astar-fixed-Serial astar  t=1    -                      run 0:       2404 ms  ok
+  mbq         astar-fixed-Serial astar  t=1    -                      run 1:       2404 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 2:       2408 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 3:       2401 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 4:       2401 ms  -
+  mbq         astar-fixed-Serial astar  t=1    -                      run 5:       2402 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-MQBucket_astar_usa-road-d_s6710139_d9159207_t1_delta=11.r*.log, timeout 600s)
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 0:       2044 ms  ok
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 1:       2030 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 2:       2038 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 3:       2071 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 4:       2044 ms  -
+  mbq         astar-fixed-MQBucket astar  t=1    delta=11               run 5:       2079 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_astar-fixed-MQBucket_astar_usa-road-d_s6710139_d9159207_t8_delta=11.r*.log, timeout 600s)
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 0:        487 ms  ok
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 1:        487 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 2:        487 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 3:        488 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 4:        488 ms  -
+  mbq         astar-fixed-MQBucket astar  t=8    delta=11               run 5:        487 ms  -
+  galois      prio           mis    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_prio_mis_usa-road-d_s-_d-_t1_-.r*.log, timeout 600s)
+  galois      prio           mis    t=1    -                      run 0:        846 ms  -
+  galois      prio           mis    t=1    -                      run 1:        827 ms  -
+  galois      prio           mis    t=1    -                      run 2:        857 ms  -
+  galois      prio           mis    t=1    -                      run 3:        840 ms  -
+  galois      prio           mis    t=1    -                      run 4:        834 ms  -
+  galois      prio           mis    t=1    -                      run 5:        839 ms  -
+  galois      prio           mis    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/galois_prio_mis_usa-road-d_s-_d-_t8_-.r*.log, timeout 600s)
+  galois      prio           mis    t=8    -                      run 0:        123 ms  -
+  galois      prio           mis    t=8    -                      run 1:        123 ms  -
+  galois      prio           mis    t=8    -                      run 2:        126 ms  -
+  galois      prio           mis    t=8    -                      run 3:        125 ms  -
+  galois      prio           mis    t=8    -                      run 4:        125 ms  -
+  galois      prio           mis    t=8    -                      run 5:        125 ms  -
+  lonestargpu default        mis    t=gpu  starting (log: /homes/z/zha12746/bench/results/ug63/logs/lonestargpu_default_mis_usa-road-d_s-_d-_tgpu_-.r*.log, timeout 600s)
+  lonestargpu default        mis    t=gpu  -                      run 0:     20.469 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 1:     20.489 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 2:     20.434 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 3:     20.423 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 4:     20.376 ms  -
+  lonestargpu default        mis    t=gpu  -                      run 5:     20.432 ms  -
+  mbq         mis-MQBucket   mis    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_mis-MQBucket_mis_usa-road-d_t1.log, timeout 600s)
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 1:    647.800 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 2:    639.900 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 3:    636.800 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 4:    635.300 ms  ok
+  mbq         mis-MQBucket   mis    t=1    delta=16               run 5:    637.000 ms  ok
+  mbq         mis-MQBucket   mis    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_mis-MQBucket_mis_usa-road-d_t8.log, timeout 600s)
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 1:    253.800 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 2:    245.600 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 3:    255.000 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 4:    260.300 ms  ok
+  mbq         mis-MQBucket   mis    t=8    delta=16               run 5:    258.700 ms  ok
+[06:37:19] residual BP (generated input)
+[06:37:19] rbp: serial reference
+  mbq         rbp-MQBucket   rbp    t=1    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_rbp-MQBucket_rbp_ising-1000_s-_d-_t1_delta=7.r*.log, timeout 600s)
+  mbq         rbp-MQBucket   rbp    t=1    delta=7                run 0:      50413 ms  accmax=0.001607
+  mbq         rbp-MQBucket   rbp    t=1    delta=7                run 1:      50358 ms  -
+  mbq         rbp-MQBucket   rbp    t=1    delta=7                run 2:      50871 ms  -
+  mbq         rbp-MQBucket   rbp    t=1    delta=7                run 3:      50369 ms  -
+  mbq         rbp-MQBucket   rbp    t=1    delta=7                run 4:      50415 ms  -
+  mbq         rbp-MQBucket   rbp    t=1    delta=7                run 5:      50374 ms  -
+  mbq         rbp-MQBucket   rbp    t=8    starting (log: /homes/z/zha12746/bench/results/ug63/logs/mbq_rbp-MQBucket_rbp_ising-1000_s-_d-_t8_delta=7.r*.log, timeout 600s)
+  mbq         rbp-MQBucket   rbp    t=8    delta=7                run 0:       8735 ms  accmax=0.001815
+  mbq         rbp-MQBucket   rbp    t=8    delta=7                run 1:       8734 ms  -
+  mbq         rbp-MQBucket   rbp    t=8    delta=7                run 2:       8734 ms  -
+  mbq         rbp-MQBucket   rbp    t=8    delta=7                run 3:       8736 ms  -
+  mbq         rbp-MQBucket   rbp    t=8    delta=7                run 4:       8918 ms  -
+  mbq         rbp-MQBucket   rbp    t=8    delta=7                run 5:       8930 ms  -
+[06:44:48] summary: /homes/z/zha12746/bench/results/ug63/summary.csv
+library      algorithm             benchmark  graph                   source     target    threads  param     runs  median_ms  min_ms   valid
+adds         default               sssp       germany-osm             0          -         gpu      -         5     95.171     94.990   ok
+adds         default               sssp       livejournal             0          -         gpu      -         0     NA         NA       TIMEOUT
+adds         default               sssp       usa-road-d              0          -         gpu      -         5     125.041    124.634  ok
+galois       deltaStep             sssp       germany-osm             0          -         1        delta=11  5     796        795      ok
+galois       deltaStep             sssp       germany-osm             0          -         8        delta=11  5     129        128      ok
+galois       deltaStep             sssp       hyperlink2012-host-new  100640172  -         1        delta=1   5     28448      28356    ok
+galois       deltaStep             sssp       hyperlink2012-host-new  100640172  -         8        delta=1   5     7030       6570     ok
+galois       deltaStep             sssp       livejournal             0          -         1        delta=0   5     1447       1444     ok
+galois       deltaStep             sssp       livejournal             0          -         8        delta=0   5     244        241      ok
+galois       deltaStep             sssp       usa-road-d              0          -         1        delta=14  5     1475       1473     ok
+galois       deltaStep             sssp       usa-road-d              0          -         8        delta=14  5     238        237      ok
+galois       prio                  mis        germany-osm             -          -         1        -         5     362        357      -
+galois       prio                  mis        germany-osm             -          -         8        -         5     54         53       -
+galois       prio                  mis        livejournal             -          -         1        -         5     2677       2605     -
+galois       prio                  mis        livejournal             -          -         8        -         5     385        359      -
+galois       prio                  mis        usa-road-d              -          -         1        -         5     839        827      -
+galois       prio                  mis        usa-road-d              -          -         8        -         5     125        123      -
+galois       pull-residual         pr         germany-osm             -          -         1        tol=1e-3  5     6693       4169     -
+galois       pull-residual         pr         germany-osm             -          -         8        tol=1e-3  5     991        990      -
+galois       pull-residual         pr         livejournal             -          -         1        tol=1e-3  5     10485      10475    -
+galois       pull-residual         pr         livejournal             -          -         8        tol=1e-3  5     1970       1948     -
+galois       pull-residual         pr         usa-road-d              -          -         1        tol=1e-3  5     8215       8201     -
+galois       pull-residual         pr         usa-road-d              -          -         8        tol=1e-3  5     1918       1913     -
+galois       push-async            pr         germany-osm             -          -         1        tol=1e-3  5     14016      14013    -
+galois       push-async            pr         germany-osm             -          -         8        tol=1e-3  5     6868       4891     -
+galois       push-async            pr         hyperlink2012-host-new  -          -         1        tol=1e-3  5     373752     373220   -
+galois       push-async            pr         hyperlink2012-host-new  -          -         8        tol=1e-3  5     114194     113557   -
+galois       push-async            pr         livejournal             -          -         1        tol=1e-3  5     18839      18327    -
+galois       push-async            pr         livejournal             -          -         8        tol=1e-3  5     3770       3683     -
+galois       push-async            pr         usa-road-d              -          -         1        tol=1e-3  5     22246      22231    -
+galois       push-async            pr         usa-road-d              -          -         8        tol=1e-3  5     14593      14542    -
+galois       SyncTile              bfs        germany-osm             0          -         1        -         5     365        364      ok
+galois       SyncTile              bfs        germany-osm             0          -         8        -         5     133        132      ok
+galois       SyncTile              bfs        hyperlink2012-host-new  100640172  -         1        -         5     12032      11626    ok
+galois       SyncTile              bfs        hyperlink2012-host-new  100640172  -         8        -         5     3545       3543     ok
+galois       SyncTile              bfs        livejournal             0          -         1        -         5     428        427      ok
+galois       SyncTile              bfs        livejournal             0          -         8        -         5     85         84       ok
+galois       SyncTile              bfs        usa-road-d              0          -         1        -         5     652        651      ok
+galois       SyncTile              bfs        usa-road-d              0          -         8        -         5     195        194      ok
+lonestargpu  default               bfs        germany-osm             0          -         gpu      -         0     NA         NA       TIMEOUT
+lonestargpu  default               bfs        livejournal             0          -         gpu      -         0     NA         NA       TIMEOUT
+lonestargpu  default               bfs        usa-road-d              0          -         gpu      -         0     NA         NA       TIMEOUT
+lonestargpu  default               mis        germany-osm             -          -         gpu      -         5     9.851      9.785    -
+lonestargpu  default               mis        livejournal             -          -         gpu      -         5     52.952     52.307   -
+lonestargpu  default               mis        usa-road-d              -          -         gpu      -         5     20.432     20.376   -
+lonestargpu  default               pr         germany-osm             -          -         gpu      x=1000    0     NA         NA       TIMEOUT
+lonestargpu  default               pr         livejournal             -          -         gpu      x=1000    0     NA         NA       TIMEOUT
+lonestargpu  default               pr         usa-road-d              -          -         gpu      x=1000    0     NA         NA       TIMEOUT
+lonestargpu  default               sssp       germany-osm             0          -         gpu      -         0     NA         NA       TIMEOUT
+lonestargpu  default               sssp       livejournal             0          -         gpu      -         0     NA         NA       TIMEOUT
+lonestargpu  default               sssp       usa-road-d              0          -         gpu      -         0     NA         NA       TIMEOUT
+mbq          astar-fixed-MQBucket  astar      germany-osm             4665057    10228940  1        delta=11  5     922        918      ok
+mbq          astar-fixed-MQBucket  astar      germany-osm             4665057    10228940  8        delta=11  5     212        211      ok
+mbq          astar-fixed-MQBucket  astar      germany-osm             4665057    436940    1        delta=11  5     354        354      ok
+mbq          astar-fixed-MQBucket  astar      germany-osm             4665057    436940    8        delta=11  5     89         89       ok
+mbq          astar-fixed-MQBucket  astar      usa-road-d              6710139    11203545  1        delta=11  5     495        493      ok
+mbq          astar-fixed-MQBucket  astar      usa-road-d              6710139    11203545  8        delta=11  5     124        124      ok
+mbq          astar-fixed-MQBucket  astar      usa-road-d              6710139    9159207   1        delta=11  5     2044       2030     ok
+mbq          astar-fixed-MQBucket  astar      usa-road-d              6710139    9159207   8        delta=11  5     487        487      ok
+mbq          astar-fixed-Serial    astar      germany-osm             4665057    10228940  1        -         5     1179       1178     ok
+mbq          astar-fixed-Serial    astar      germany-osm             4665057    436940    1        -         5     445        444      ok
+mbq          astar-fixed-Serial    astar      usa-road-d              6710139    11203545  1        -         5     577        575      ok
+mbq          astar-fixed-Serial    astar      usa-road-d              6710139    9159207   1        -         5     2402       2401     ok
+mbq          astar-orig-MQBucket   astar      germany-osm             4665057    10228940  1        delta=11  5     4998       2522     PATH-DIFFERS
+mbq          astar-orig-MQBucket   astar      germany-osm             4665057    10228940  8        delta=11  5     791        746      PATH-DIFFERS
+mbq          astar-orig-MQBucket   astar      germany-osm             4665057    436940    1        delta=11  5     2932       1807     PATH-DIFFERS
+mbq          astar-orig-MQBucket   astar      germany-osm             4665057    436940    8        delta=11  5     383        311      PATH-DIFFERS
+mbq          astar-orig-MQBucket   astar      usa-road-d              6710139    11203545  1        delta=11  1     17578      17578    TIMEOUT
+mbq          astar-orig-MQBucket   astar      usa-road-d              6710139    11203545  8        delta=11  5     1060       781      no-serial-reference
+mbq          astar-orig-MQBucket   astar      usa-road-d              6710139    9159207   1        delta=11  4     121233     61397    TIMEOUT
+mbq          astar-orig-MQBucket   astar      usa-road-d              6710139    9159207   8        delta=11  5     61152      57812    no-serial-reference
+mbq          astar-orig-Serial     astar      germany-osm             4665057    10228940  1        -         5     4021       4014     ok
+mbq          astar-orig-Serial     astar      germany-osm             4665057    436940    1        -         5     170        168      ok
+mbq          astar-orig-Serial     astar      usa-road-d              6710139    11203545  1        -         0     NA         NA       TIMEOUT
+mbq          astar-orig-Serial     astar      usa-road-d              6710139    9159207   1        -         0     NA         NA       TIMEOUT
+mbq          deltaStepOBIM         ppsp       germany-osm             4665057    10228940  1        delta=11  5     922        920      ok
+mbq          deltaStepOBIM         ppsp       germany-osm             4665057    10228940  8        delta=11  5     148        148      ok
+mbq          deltaStepOBIM         ppsp       germany-osm             4665057    436940    1        delta=11  5     856        852      ok
+mbq          deltaStepOBIM         ppsp       germany-osm             4665057    436940    8        delta=11  5     137        136      ok
+mbq          deltaStepOBIM         ppsp       hyperlink2012-host-new  100640172  16937928  1        delta=1   5     31818      31782    ok
+mbq          deltaStepOBIM         ppsp       hyperlink2012-host-new  100640172  16937928  8        delta=1   5     7312       7070     ok
+mbq          deltaStepOBIM         ppsp       hyperlink2012-host-new  100640172  66776937  1        delta=1   5     26856      26822    ok
+mbq          deltaStepOBIM         ppsp       hyperlink2012-host-new  100640172  66776937  8        delta=1   5     5750       5337     ok
+mbq          deltaStepOBIM         ppsp       livejournal             834180     4846050   1        delta=0   5     1584       1583     ok
+mbq          deltaStepOBIM         ppsp       livejournal             834180     4846050   8        delta=0   5     259        258      ok
+mbq          deltaStepOBIM         ppsp       livejournal             834180     632586    1        delta=0   5     1396       1393     ok
+mbq          deltaStepOBIM         ppsp       livejournal             834180     632586    8        delta=0   5     224        223      ok
+mbq          deltaStepOBIM         ppsp       usa-road-d              6710139    11203545  1        delta=14  5     883        882      ok
+mbq          deltaStepOBIM         ppsp       usa-road-d              6710139    11203545  8        delta=14  5     149        149      ok
+mbq          deltaStepOBIM         ppsp       usa-road-d              6710139    9159207   1        delta=14  5     1575       1567     ok
+mbq          deltaStepOBIM         ppsp       usa-road-d              6710139    9159207   8        delta=14  5     266        264      ok
+mbq          deltaStepOBIM         sssp       germany-osm             0          -         1        delta=11  5     920        918      ok
+mbq          deltaStepOBIM         sssp       germany-osm             0          -         8        delta=11  5     147        146      ok
+mbq          deltaStepOBIM         sssp       hyperlink2012-host-new  100640172  -         1        delta=1   5     30643      30627    ok
+mbq          deltaStepOBIM         sssp       hyperlink2012-host-new  100640172  -         8        delta=1   5     7265       6948     ok
+mbq          deltaStepOBIM         sssp       livejournal             0          -         1        delta=0   5     1561       1560     ok
+mbq          deltaStepOBIM         sssp       livejournal             0          -         8        delta=0   5     257        255      ok
+mbq          deltaStepOBIM         sssp       usa-road-d              0          -         1        delta=14  5     1683       1680     ok
+mbq          deltaStepOBIM         sssp       usa-road-d              0          -         8        delta=14  5     275        273      ok
+mbq          mis-MQBucket          mis        germany-osm             -          -         1        delta=16  5     252.200    249.500  ok
+mbq          mis-MQBucket          mis        germany-osm             -          -         8        delta=16  5     100.600    97.900   ok
+mbq          mis-MQBucket          mis        livejournal             -          -         1        delta=11  5     313.500    312.900  ok
+mbq          mis-MQBucket          mis        livejournal             -          -         8        delta=11  5     81.200     80.100   ok
+mbq          mis-MQBucket          mis        usa-road-d              -          -         1        delta=16  5     637.000    635.300  ok
+mbq          mis-MQBucket          mis        usa-road-d              -          -         8        delta=16  5     255.000    245.600  ok
+mbq          MQBucket              bfs        germany-osm             0          -         1        delta=0   5     572        570      ok
+mbq          MQBucket              bfs        germany-osm             0          -         8        delta=0   5     125        124      ok
+mbq          MQBucket              bfs        hyperlink2012-host-new  100640172  -         1        delta=0   5     17545      17511    ok
+mbq          MQBucket              bfs        hyperlink2012-host-new  100640172  -         8        delta=0   5     3813       3807     ok
+mbq          MQBucket              bfs        livejournal             0          -         1        delta=0   5     411        409      ok
+mbq          MQBucket              bfs        livejournal             0          -         8        delta=0   5     83         82       ok
+mbq          MQBucket              bfs        usa-road-d              0          -         1        delta=0   5     1134       1132     ok
+mbq          MQBucket              bfs        usa-road-d              0          -         8        delta=0   5     333        328      ok
+mbq          MQBucket              ppsp       germany-osm             4665057    10228940  1        delta=9   5     562        561      ok
+mbq          MQBucket              ppsp       germany-osm             4665057    10228940  8        delta=9   5     108        107      ok
+mbq          MQBucket              ppsp       germany-osm             4665057    436940    1        delta=9   5     525        521      ok
+mbq          MQBucket              ppsp       germany-osm             4665057    436940    8        delta=9   5     97         97       ok
+mbq          MQBucket              ppsp       hyperlink2012-host-new  100640172  16937928  1        delta=3   5     30221      30125    ok
+mbq          MQBucket              ppsp       hyperlink2012-host-new  100640172  16937928  8        delta=3   5     7408       7401     ok
+mbq          MQBucket              ppsp       hyperlink2012-host-new  100640172  66776937  1        delta=3   5     23078      22539    ok
+mbq          MQBucket              ppsp       hyperlink2012-host-new  100640172  66776937  8        delta=3   5     5493       5458     ok
+mbq          MQBucket              ppsp       livejournal             834180     4846050   1        delta=4   5     1151       1147     ok
+mbq          MQBucket              ppsp       livejournal             834180     4846050   8        delta=4   5     245        243      ok
+mbq          MQBucket              ppsp       livejournal             834180     632586    1        delta=4   5     1025       1014     ok
+mbq          MQBucket              ppsp       livejournal             834180     632586    8        delta=4   5     219        217      ok
+mbq          MQBucket              ppsp       usa-road-d              6710139    11203545  1        delta=12  5     652        644      ok
+mbq          MQBucket              ppsp       usa-road-d              6710139    11203545  8        delta=12  5     115        115      ok
+mbq          MQBucket              ppsp       usa-road-d              6710139    9159207   1        delta=12  5     1116       1100     ok
+mbq          MQBucket              ppsp       usa-road-d              6710139    9159207   8        delta=12  5     205        205      ok
+mbq          MQBucket              pr         germany-osm             -          -         1        delta=21  5     20649      20599    -
+mbq          MQBucket              pr         germany-osm             -          -         8        delta=21  5     3315       3305     -
+mbq          MQBucket              pr         hyperlink2012-host-new  -          -         1        delta=21  0     NA         NA       TIMEOUT
+mbq          MQBucket              pr         hyperlink2012-host-new  -          -         8        delta=21  5     207514     206811   -
+mbq          MQBucket              pr         livejournal             -          -         1        delta=20  5     38189      34142    -
+mbq          MQBucket              pr         livejournal             -          -         8        delta=20  5     6832       6805     -
+mbq          MQBucket              pr         usa-road-d              -          -         1        delta=21  5     58047      57352    -
+mbq          MQBucket              pr         usa-road-d              -          -         8        delta=21  5     11897      11876    -
+mbq          MQBucket              sssp       germany-osm             0          -         1        delta=8   5     549        545      ok
+mbq          MQBucket              sssp       germany-osm             0          -         8        delta=8   5     95         95       ok
+mbq          MQBucket              sssp       hyperlink2012-host-new  100640172  -         1        delta=3   5     30099      29956    ok
+mbq          MQBucket              sssp       hyperlink2012-host-new  100640172  -         8        delta=3   5     7291       7271     ok
+mbq          MQBucket              sssp       livejournal             0          -         1        delta=4   5     1063       1063     ok
+mbq          MQBucket              sssp       livejournal             0          -         8        delta=4   5     235        233      ok
+mbq          MQBucket              sssp       usa-road-d              0          -         1        delta=11  5     1084       1083     ok
+mbq          MQBucket              sssp       usa-road-d              0          -         8        delta=11  5     219        217      ok
+mbq          OBIM                  bfs        germany-osm             0          -         1        delta=0   5     815        814      ok
+mbq          OBIM                  bfs        germany-osm             0          -         8        delta=0   5     130        129      ok
+mbq          OBIM                  bfs        hyperlink2012-host-new  100640172  -         1        delta=0   5     15391      15373    ok
+mbq          OBIM                  bfs        hyperlink2012-host-new  100640172  -         8        delta=0   5     3861       3837     ok
+mbq          OBIM                  bfs        livejournal             0          -         1        delta=0   5     614        612      ok
+mbq          OBIM                  bfs        livejournal             0          -         8        delta=0   5     105        104      ok
+mbq          OBIM                  bfs        usa-road-d              0          -         1        delta=0   5     1327       1326     ok
+mbq          OBIM                  bfs        usa-road-d              0          -         8        delta=0   5     224        224      ok
+mbq          OBIMPR                pr         germany-osm             -          -         1        delta=21  5     19324      19280    -
+mbq          OBIMPR                pr         germany-osm             -          -         8        delta=21  5     3252       3233     -
+mbq          OBIMPR                pr         hyperlink2012-host-new  -          -         1        delta=20  0     NA         NA       TIMEOUT
+mbq          OBIMPR                pr         hyperlink2012-host-new  -          -         8        delta=20  5     199811     199655   -
+mbq          OBIMPR                pr         livejournal             -          -         1        delta=20  5     35004      32079    -
+mbq          OBIMPR                pr         livejournal             -          -         8        delta=20  5     6569       6180     -
+mbq          OBIMPR                pr         usa-road-d              -          -         1        delta=21  5     31428      31171    -
+mbq          OBIMPR                pr         usa-road-d              -          -         8        delta=21  5     7955       6858     -
+mbq          rbp-MQBucket          rbp        ising-1000              -          -         1        delta=7   5     50374      50358    accmax=0.001607
+mbq          rbp-MQBucket          rbp        ising-1000              -          -         8        delta=7   5     8736       8734     accmax=0.001815
+mlmq         adaptive              sssp       germany-osm             0          -         gpu      -         0     NA         NA       TIMEOUT
+mlmq         adaptive              sssp       livejournal             0          -         gpu      -         0     NA         NA       TIMEOUT
+mlmq         adaptive              sssp       usa-road-d              0          -         gpu      -         0     NA         NA       TIMEOUT
