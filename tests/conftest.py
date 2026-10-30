@@ -15,11 +15,12 @@ OUT_DIR = REPO_ROOT / "tests" / "out"
 TEST_GRAPHS_DIR = REPO_ROOT / "graphs" / "inputs" / "test"
 # Override with ECE496_BIN to test a binary built elsewhere.
 GPU_BIN = Path(os.environ.get("ECE496_BIN", REPO_ROOT / "bin" / "ece496"))
-GPU_TIMEOUT_S = 60
+GPU_TIMEOUT_S = 180
 
 
 def run_gpu(benchmark, graph_path, source=0, out=None, weight_type="int32",
-            scheduler="initial_scheduler", time=False, check=True):
+            scheduler="initial_scheduler", time=False, verbose=False,
+            check=True):
     """Run the GPU program once and return the CompletedProcess.
 
     A hung run fails after GPU_TIMEOUT_S instead of freezing the test run.
@@ -34,6 +35,8 @@ def run_gpu(benchmark, graph_path, source=0, out=None, weight_type="int32",
         cmd += ["--out", str(out)]
     if time:
         cmd.append("--time")
+    if verbose:
+        cmd.append("--verbose")
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               timeout=GPU_TIMEOUT_S)

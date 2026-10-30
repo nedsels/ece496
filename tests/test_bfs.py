@@ -13,7 +13,7 @@ from graphs import GRAPH_NAMES, make_graph, random_graph, read_gr, write_gr
 from reference import UNREACHED, scipy_bfs
 
 # GPU bugs can be timing dependent, so every case runs several times.
-REPEATS = 10
+REPEATS = 10 # TODO: look into an appropriate number and update
 
 
 def gpu_bfs(graph_path, source, out_dir, weight_type="int32"):
@@ -80,6 +80,21 @@ def test_bfs_time_output(out_dir):
                    time=True)
     assert proc.timing["kernel_ms"] >= 0
     assert proc.timing["load_ms"] >= 0
+
+
+def test_bfs_verbose_prints_and_writes(out_dir):
+    path = TEST_GRAPHS_DIR / "tiny.gr"
+    proc = run_gpu("bfs", path, out=out_dir / "d.bin", time=True, verbose=True)
+    assert "Distances by vertex" in proc.stdout
+    # The JSON timing line still comes last, after the distances.
+    assert "kernel_ms" in proc.timing
+    assert_same_distances(np.fromfile(out_dir / "d.bin", dtype=np.uint32),
+                          scipy_bfs(read_gr(path), 0))
+
+
+def test_bfs_out_without_verbose_is_quiet(out_dir):
+    proc = run_gpu("bfs", TEST_GRAPHS_DIR / "tiny.gr", out=out_dir / "d.bin")
+    assert "Distances by vertex" not in proc.stdout
 
 
 @pytest.mark.parametrize("source", ["-1", "10"])

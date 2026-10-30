@@ -11,8 +11,9 @@
 
 // Optional flags given after the positional arguments.
 struct RunOptions {
-  const char* out_path = nullptr;  // --out FILE: write distances as raw uint32
-  bool print_time = false;         // --time: print timing as one JSON line
+  const char* out_path = nullptr; // --out FILE: write distances as raw uint32
+  bool print_time = false;        // --time: print timing as one JSON line
+  bool verbose = false;           // --verbose: print distances to stdout
 };
 
 // TODO create Benchmark std::variants
@@ -95,13 +96,15 @@ int run_benchmark(const char* graph_path, const char* source_text,
         h_scheduler);
 
     if (result == 0) {
-      if (options.out_path != nullptr) {
-        if (!benchmark.write_distances(options.out_path)) {
-          result = 1;
-        }
-      } else {
+      if (options.out_path != nullptr &&
+          !benchmark.write_distances(options.out_path)) {
+        result = 1;
+      }
+      // Without --out, printing is the only way to see the result.
+      if (options.verbose || options.out_path == nullptr) {
         benchmark.print_distances();
       }
+      // Printed last so callers can parse the final stdout line as JSON.
       if (options.print_time) {
         std::cout << "{\"kernel_ms\": " << benchmark.kernel_ms
                   << ", \"load_ms\": " << load_ms << "}" << std::endl;
@@ -122,11 +125,12 @@ int main(int argc, char* argv[]) {
   if (argc < 6) {
     std::cerr << "Usage: " << argv[0]
               << " <benchmark> <graph.gr> <source> <weight-type> <scheduler>"
-                 " [--out FILE] [--time]\n"
+                 " [--out FILE] [--time] [--verbose]\n"
               << "benchmark: bfs\n"
               << "weight-type: int32, uint32, float32\n"
               << "--out FILE: write distances to FILE as raw uint32 values\n"
-              << "--time: print {\"kernel_ms\": ..., \"load_ms\": ...}\n";
+              << "--time: print {\"kernel_ms\": ..., \"load_ms\": ...}\n"
+              << "--verbose: also print distances when --out is given\n";
     return 1;
   }
 
@@ -136,6 +140,8 @@ int main(int argc, char* argv[]) {
       options.out_path = argv[++i];
     } else if (std::strcmp(argv[i], "--time") == 0) {
       options.print_time = true;
+    } else if (std::strcmp(argv[i], "--verbose") == 0) {
+      options.verbose = true;
     } else {
       std::cerr << "Unknown or incomplete option: " << argv[i] << '\n';
       return 1;

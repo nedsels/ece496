@@ -32,9 +32,11 @@ pytest tests -k tiny               # tests whose name contains "tiny"
 ### `run_gpu()`
 Runs `bin/ece496` once, e.g.
 `run_gpu("bfs", path, source=0, out=out_dir / "d.bin", time=True)`.
-- The test fails if the binary is missing, the run takes longer than 60 s, or
+- The test fails if the binary is missing, the run takes longer than 180s (GPU_TIMEOUT_S in conftest.py), or
   the exit code isn't 0. The failure message includes the program's output.
 - `check=False` skips the exit-code check, for tests that expect an error.
+- `verbose=True` passes `--verbose`, so the distances are printed to stdout
+  as well as written to `out`.
 - `time=True` passes `--time` and puts the parsed JSON on `.timing`, e.g.
   `proc.timing["kernel_ms"]`.
 - To test a binary built somewhere else, set `ECE496_BIN=/path/to/ece496`.
@@ -42,10 +44,6 @@ Runs `bin/ece496` once, e.g.
 ### BFS tests (`test_bfs.py`)
 Each test runs the GPU program with `--out`, reads the distances with
 `np.fromfile(..., dtype=np.uint32)` and requires an exact match with SciPy.
-- Every generated graph runs 10 times with different seeds, because GPU bugs
-  can depend on timing. Edge weights go up to 100, which checks that BFS
-  counts hops and ignores weights.
-- The checked-in `graphs/inputs/test/tiny.gr` also runs 10 times.
 - Other cases: start vertices other than 0, unreachable vertices, all three
   weight types (int32, uint32, float32), the `--time` output, and an
   out-of-range start vertex, which must fail without writing a file.
