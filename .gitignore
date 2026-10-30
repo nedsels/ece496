@@ -6,3 +6,9 @@
 **/CMakeFiles/
 **/cmake_install.cmake
 **/Makefile
+/.vscode
+/tests/out/
+**/__pycache__/
+/.pytest_cache/
+.claude
+/bench/results/
