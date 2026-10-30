@@ -19,6 +19,8 @@ enum class Status : int {
 struct BenchmarkConfig {
     std::optional<long> source;
     std::optional<long> destination;
+    std::optional<float> damping_factor;
+    std::optional<float> epsilon;
 };
 
 } // end Benchmarks namespace

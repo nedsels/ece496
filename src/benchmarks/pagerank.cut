@@ -1,0 +1,198 @@
+#pragma once
+
+#include <common/utils.cuh>
+#include <scheduler/enum.cuh>
+#include <benchmarks/benchmarks.cuh>
+
+#include <cuda_runtime.h>
+
+#include <cassert>
+#include <climits>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <algorithm>
+
+template <typename GraphType, typename SchedulerType>
+static __global__ void page_rank_kernel(
+    GraphType graph, float* ranks, float* residuals, const float damping, const float eps,
+    SchedulerType* scheduler
+);
+
+template <typename GraphType>
+Benchmarks::Status PAGERANK<GraphType>::init(const GraphType& graph, const Benchmarks::BenchmarkConfig& config) {
+    if (initialized) {
+        return Benchmarks::Status::ERROR;
+    }
+
+    nnodes = graph.nnodes;
+    rank_bytes = nnodes * sizeof(float);
+    epsilon = config.epsilon.value();
+    if (epsilon <= 0.0f) {
+        std::cout << "Epsilon MUST be > 0\n";
+        return Benchmarks::Status::ERROR;
+    }
+    damping_factor = config.damping_factor.value();
+    if (damping_factor < 0.0f) {
+        std::cout << "Damping factor must be non-negative\n";
+        return Benchmarks::Status::ERROR;
+    }
+
+    // Allocate memory on host
+    h_ranks = static_cast<float*>(malloc(rank_bytes));
+    if (h_ranks == nullptr) {
+        free(h_ranks);
+        return Benchmarks::Status::ERROR;
+    }
+    // Only need to so we can copy to device
+    h_residuals = static_cast<float*>(malloc(rank_bytes));
+    if (h_residuals == nullptr) {
+        free (h_residuals);
+        return Benchmarks::Status::ERROR; 
+    }
+
+    // Initialize ranks to be zero
+    memset(h_ranks, 0, rank_bytes);
+    
+    const float init_residual = (1.0f - damping_factor) / static_cast<float>(nnodes);
+    std::fill(h_residuals, h_residuals + nnodes, init_residual);
+
+    // Allocate memory on device
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void**>(&d_ranks), rank_bytes)
+    );
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void**>(&d_residuals), rank_bytes)
+    );
+
+    initialized = true;
+
+    return Benchmarks::Status::SUCCESS;
+}
+
+// TODO: Rename this/merge into init
+template <typename GraphType>
+Benchmarks::Status PAGERANK<GraphType>::copy_to_device() {
+    CUDA_CHECK(cudaMemcpy(d_ranks, h_ranks, rank_bytes,
+                        cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_residuals, h_residuals, rank_bytes, 
+                        cudaMemcpyHostToDevice));
+    // Don't need this anymore
+    free(h_residuals);
+    h_residuals = nullptr;
+
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType>
+Benchmarks::Status PAGERANK<GraphType>::copy_to_host() {
+    CUDA_CHECK(cudaMemcpy(h_ranks, d_ranks, rank_bytes,
+                        cudaMemcpyDeviceToHost));
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType>
+template <typename SchedulerType>
+Benchmarks::Status PAGERANK<GraphType>::solve(
+    GraphType d_graph, SchedulerType* d_scheduler, 
+    unsigned grid_size, unsigned block_size
+) {
+    page_rank_kernel<<<grid_size, block_size>>>(
+        d_graph, d_ranks, d_residuals, damping_factor, epsilon, d_scheduler
+    );
+
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType>
+void PAGERANK<GraphType>::print_result() {
+    std::cout << "Rank by vertex:\n";
+    for (index_type i = 0; i < nnodes; i++) {
+        std::cout << i << ":" << h_ranks[i] << " ";
+    }
+    std::cout << std::endl;
+}
+
+template <typename GraphType>
+Benchmarks::Status PAGERANK<GraphType>::dealloc() {
+    free(h_ranks);
+    cudaFree(d_ranks);
+    cudaFree(d_residuals);
+    return Benchmarks::Status::SUCCESS;
+}
+
+template <typename GraphType, typename SchedulerType>
+static __global__ void page_rank_kernel(
+    GraphType graph, float* ranks, float* residuals, const float damping, const float eps,
+    SchedulerType* scheduler
+) {
+    const unsigned total_threads = gridDim.x * blockDim.x;
+    const unsigned thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+    // Position in warp -- lane 0 - 31
+    const unsigned lane_id = threadIdx.x & 31; /* % 32 */
+
+    using task_type = typename PAGERANK<GraphType>::TaskType;
+    using index_type = typename GraphType::index_type;
+
+    // Seed scheduler with all nodes
+    {
+        const index_type nnodes = graph.nnodes;
+        task_type* initial_tasks = nullptr;
+        size_t num_tasks = 0;
+        if (thread_id < nnodes) {
+            // round up
+            initial_tasks = (task_type*)malloc(((nnodes + total_threads - 1) / total_threads) * sizeof(task_type));
+            // Round robin
+            for (index_type idx = thread_id; idx < nnodes; idx += total_threads) {
+                initial_tasks[num_tasks++] = {idx, 0};
+            }
+        }
+        scheduler->push(initial_tasks, num_tasks, lane_id);
+        free(initial_tasks);
+        initial_tasks = nullptr;
+    }
+
+    task_type task;
+    unsigned tasks_read;
+    // If there are tasks left, we are not done this iteration yet
+    while (scheduler->pop(&task, &tasks_read, warpSize, blockIdx.x, lane_id) != POP_DONE) {
+        task_type* new_tasks = nullptr;
+        unsigned num_new_tasks = 0;
+        // pop() writes to the lowest lanes
+        if (lane_id < tasks_read) {
+            // Iteration based guarantees one task per node
+            index_type v = task.item;
+            const float residual = atomicExch(&residuals[v], 0.0f);
+            atomicAdd(&ranks[v], residual);
+            const index_type degree = graph.getOutDegree(v);
+            
+            // Propagate residual
+            // TODO: This drops dangling vertices (ignores outdegree == 0). 
+            // Danling vertices should uniformly distribute residual across all other vertices
+            // For large graphs, dangling vertices shouldn't impact rank by much
+            if (degree > 0 && residual > 0.0f) {
+                const float shared_residual = damping * residual / static_cast<float>(degree);
+                new_tasks = (task_type*)malloc(degree * sizeof(task_type));
+                for (index_type e_rel = 0; e_rel < degree; e_rel++) {
+                    index_type nbr = graph.getDestination(v, e_rel);
+                    // Update neighbour's residual
+                    const float old = atomicAdd(&residuals[nbr], shared_residual);
+                    // Only create new task if change is above threshold
+                    if (old < eps && old + shared_residual >= eps) {
+                        new_tasks[num_new_tasks++] = {nbr, 0};
+                    }
+                }
+            }
+        }
+        // Push synchronizes so all threads synced after this call
+        if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
+            printf("Deadlock\n");
+            assert(false);
+        }
+        if (new_tasks != nullptr) {
+            free(new_tasks);
+        }
+    }
+}

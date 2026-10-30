@@ -1,6 +1,7 @@
 #include <benchmarks/bfs.cuh>
 #include <benchmarks/sssp.cuh>
 #include <benchmarks/a_star.cuh>
+#include <benchmarks/pagerank.cuh>
 #include <graph/csr_graph.cuh>
 #include <scheduler/scheduler.cuh>
 #include <benchmarks/benchmarks.cuh>
@@ -10,6 +11,7 @@
 #include <cstring>
 #include <cuda_runtime.h>
 #include <iostream>
+#include <optional>
 
 namespace {
 
@@ -36,6 +38,7 @@ int main(int argc, char* argv[]) {
     std::cerr << "Usage: " << argv[0]
               << " <bfs/sssp> <graph.gr> <weight-type> <scheduler> <source>\n"
               << " <a_star> <graph.gr> <weight-type> <scheduler> <source> <destination>\n"
+              << " <pr> <graph.gr> <weight-type> <scheduler> <damping factor> <epsilon>\n"
               << "weight-type: int32, uint32\n"
               << "scheduler: initial_scheduler\n";
     return 1;
@@ -58,6 +61,10 @@ int main(int argc, char* argv[]) {
     if (std::strcmp(argv[1], "a_star") == 0) {
       const Benchmarks::BenchmarkConfig config = {.source=std::strtol(argv[5], nullptr, 10), .destination=std::strtol(argv[6], nullptr, 10)};
       return run_with_weight<A_STAR, std::pair<std::int32_t, std::int32_t>>(argv[2], argv[3], scheduler_choice, prop, config);
+    }
+    if (std::strcmp(argv[1], "pr") == 0) {
+      const Benchmarks::BenchmarkConfig config = {.source=std::nullopt, .destination=std::nullopt, .damping_factor=std::stof(argv[5]), .epsilon=std::stof(argv[6])};
+      return run_with_weight<PAGERANK>(argv[2], argv[3], scheduler_choice, prop, config);
     }
 
     std::cerr << "Unsupported benchmark: " << argv[1] << '\n';
@@ -175,14 +182,6 @@ Benchmarks::Status run_benchmark(const char* graph_path, const Benchmarks::Bench
   return result;
 }
 
-// TODO: Do we need to support all these weight types?
-// BFS and pagerank doesn't use weights
-// SSSP and A* must use positive weights
-// If we want to expand to MIS or SC these are vertex algos and don't need weights
-// In the proposal I think we only specify positive weights in the SysR
-// We can also configure valid weight types per algorithm, but floating point needs to 
-// be checked for negative weights
-//
 // NOTE: NodeDataType is currently only needed for A* for coordinates used to compute h score
 // Default this to int for now. When building the graph, the node data is optional and only done if
 // specified in the .gr file
@@ -204,11 +203,7 @@ int run_with_weight(
       run_benchmark<BenchmarkTemplate, std::uint32_t, NodeDataType>(graph_path, config, scheduler_choice, prop)
     );
   }
-  // if (std::strcmp(weight_name, "float32") == 0) {
-  //   return static_cast<int>(
-  //     run_benchmark<BenchmarkTemplate, float, NodeDataType>(graph_path, config, scheduler_choice, prop)
-  //   );
-  // }
+  // TODO: float weights?
   std::cerr << "Unsupported weight type: " << weight_name << '\n';
   return 1;
 }

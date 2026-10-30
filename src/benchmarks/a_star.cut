@@ -147,7 +147,7 @@ static __global__ void a_star_kernel(
         if (lane_id < tasks_read) {
             index_type v = task.item;
             const float task_f_score = task.priority;
-            // Prune task if the f score is greater than or equalt to the best distance already found
+            // Prune task if the f score is greater than or equal to the best distance already found
             // This works since h is admissible
             // It must be the case that the actual distance from v to dest is greater than (or equal to) h(v)
             // As such, if f(v) >= g(dest), then the current task at v cannot improve the solution
