@@ -48,7 +48,14 @@ GALOIS_COMMIT=b67f942
 GUNROCK_COMMIT=748f79e
 MBQ_COMMIT=25d3583
 MLMQ_COMMIT=77d81ab
+# MLMQ is $MLMQ_COMMIT plus bench/patches/mlmq-fixes.patch (see build_mlmq).
+# MLMQ_DIR=/path builds an already-patched tree instead (e.g. ece496/MLMQ while
+# working on the fixes).
+MLMQ_PATCH=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/patches/mlmq-fixes.patch
+MLMQ_DIR=${MLMQ_DIR:-}
 CCCL_TAG=v3.0.3     # Gunrock fetches CCCL's moving main branch; pin a release
+GUNROCK_COMMIT_CUDA11=v2.1.0   # used instead when Gunrock's nvcc is older than 12.4
+CCCL_TAG_CUDA11=v2.5.0
 FMT_TAG=9.1.0       # built into WORK_DIR when the system has no libfmt
 
 export CUDA_VISIBLE_DEVICES=$GPU
@@ -110,7 +117,7 @@ cmd_check() {
   done
   echo "  need: cmake >= 3.24 (Gunrock), g++ >= 10, nvcc >= 11.1 (LonestarGPU, MLMQ, ADDS)"
   local gv; gv=$(gunrock_nvcc_version)
-  echo "  nvcc for Gunrock: ${gv:-none} (${GUNROCK_CUDA_HOME:-PATH}); Gunrock needs >= 12.4, see GUNROCK_CUDA_HOME"
+  echo "  nvcc for Gunrock: ${gv:-none} (${GUNROCK_CUDA_HOME:-PATH}); older than 12.4 builds Gunrock $GUNROCK_COMMIT_CUDA11"
   echo "  clang++ is optional (MBQ MIS; g++ is used otherwise)"
   local hc; hc=$(cuda_host_cxx)
   echo "  host compiler for nvcc: ${hc:-default g++}"
@@ -279,18 +286,24 @@ build_galois() {
 
 build_gunrock() {
   [[ $CUDA_ARCH != none ]] || { note "gunrock: no GPU, skipped"; return 0; }
-  local s=$SRC/gunrock b=$BUILD/gunrock nvcc v
+  local s=$SRC/gunrock b=$BUILD/gunrock nvcc v hc commit=$GUNROCK_COMMIT cccl=$CCCL_TAG
   nvcc=$(gunrock_nvcc); v=$(gunrock_nvcc_version)
-  if [[ -z $v ]] || ! printf '12.4\n%s\n' "$v" | sort -VC; then
-    echo "gunrock: needs CUDA >= 12.4, found '${v:-no nvcc}' ($nvcc)." >&2
-    echo "  Install a newer toolkit without root and point GUNROCK_CUDA_HOME at it" >&2
-    echo "  (see bench/README.md, 'Gunrock and CUDA 11')." >&2
+  if [[ -z $v ]] || ! printf '11.5\n%s\n' "$v" | sort -VC; then
+    echo "gunrock: needs CUDA >= 11.5, found '${v:-no nvcc}' ($nvcc)." >&2
     return 1
   fi
-  build_step gunrock "fetch $GUNROCK_COMMIT" fetch "$s" \
-    https://github.com/gunrock/gunrock.git "$GUNROCK_COMMIT" || return 1
-  build_step gunrock "fetch CCCL $CCCL_TAG" fetch "$SRC/cccl" \
-    https://github.com/NVIDIA/cccl.git "$CCCL_TAG" || return 1
+  if ! printf '12.4\n%s\n' "$v" | sort -VC; then
+    # Gunrock after v2.1.0 needs CUDA 12.4, and CCCL 3.x needs CUDA 12. v2.1.0
+    # asks for CUDA >= 11.5.1; pin a CCCL 2.x release from the same period.
+    commit=$GUNROCK_COMMIT_CUDA11 cccl=$CCCL_TAG_CUDA11
+    note "gunrock: CUDA $v < 12.4, building Gunrock $commit with CCCL $cccl"
+    # CUDA 11 accepts at most GCC 11 as its host compiler.
+    hc=$(cuda_host_cxx)
+  fi
+  build_step gunrock "fetch $commit" fetch "$s" \
+    https://github.com/gunrock/gunrock.git "$commit" || return 1
+  build_step gunrock "fetch CCCL $cccl" fetch "$SRC/cccl" \
+    https://github.com/NVIDIA/cccl.git "$cccl" || return 1
   # PageRank: the example hard-codes tol = 1e-6 on ranks that sum to 1, so on
   # a large graph (ranks ~1/n) it stops after a couple of iterations. Read a
   # per-node tolerance in Galois/MBQ units (ranks ~1 each) from
@@ -308,7 +321,7 @@ build_gunrock() {
     -DESSENTIALS_NVIDIA_BACKEND=ON -DESSENTIALS_AMD_BACKEND=OFF \
     -DESSENTIALS_BUILD_TESTS=OFF -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
     -DCMAKE_CUDA_COMPILER="$nvcc" -DCUDAToolkit_ROOT="$(dirname "$(dirname "$nvcc")")" \
-    -DFETCHCONTENT_SOURCE_DIR_CCCL="$SRC/cccl" \
+    -DFETCHCONTENT_SOURCE_DIR_CCCL="$SRC/cccl" ${hc:+-DCMAKE_CUDA_HOST_COMPILER="$hc"} \
     -DCMAKE_CUDA_FLAGS="--pre-include=thrust/distance.h --pre-include=thrust/tuple.h" || return 1
   build_step gunrock "compile bfs sssp pr color" \
     cmake --build "$b" -j "$JOBS" --target bfs sssp pr color
@@ -366,17 +379,26 @@ build_mlmq() {
   local s=$SRC/mlmq b=$BUILD/mlmq gen="-gencode=arch=compute_$CUDA_ARCH,code=sm_$CUDA_ARCH" hc
   hc=$(cuda_host_cxx)
   [[ -n $hc ]] && gen+=" -ccbin '$hc'"
-  build_step mlmq "fetch $MLMQ_COMMIT" fetch "$s" \
-    https://github.com/Leo9660/MLMQ.git "$MLMQ_COMMIT" || return 1
   mkdir -p "$b"
-  # GPU_MEMORY (2.0 * 2^30 bytes of queue) is passed as an int; 2^31
-  # overflows to a negative size with current compilers and every cudaMalloc
-  # fails. INT_MAX is the ~2 GB the authors intended.
-  git -C "$s" checkout -q -- SSSP_adaptive/sssp.cuh
-  sed -i 's|^#define GPU_MEMORY (2.0 \* 1024 \* 1024 \* 1024)|#define GPU_MEMORY (2147483647)|' \
-    "$s/SSSP_adaptive/sssp.cuh"
-  grep -q '^#define GPU_MEMORY (2147483647)' "$s/SSSP_adaptive/sssp.cuh" ||
-    { echo "mlmq: could not patch GPU_MEMORY" >&2; return 1; }
+  if [[ -n $MLMQ_DIR ]]; then
+    s=$SRC/mlmq-local
+    build_step mlmq "copy $MLMQ_DIR" rsync -a --delete --exclude .git \
+      --exclude '*.o' --exclude 'SSSP*/main' --exclude 'ADDS/*/sssp' "$MLMQ_DIR/" "$s/" || return 1
+  else
+    build_step mlmq "fetch $MLMQ_COMMIT" fetch "$s" \
+      https://github.com/Leo9660/MLMQ.git "$MLMQ_COMMIT" || return 1
+    # Upstream MLMQ hangs or gives wrong answers on current GPUs and drivers.
+    # The patch (generated from ece496/MLMQ) fixes, among others:
+    #  - GPU_MEMORY (2^31 bytes) overflowing the int queue size -> cudaMalloc fails
+    #  - work and manager kernels in two streams spin-waiting on each other; not
+    #    guaranteed to run concurrently (never on WSL2) -> one cooperative launch
+    #  - __match_any_sync with lanes outside the mask: 1 write counted as 32 -> hang
+    #  - delta queue: unread entries overwritten when a bucket's ring wraps -> wrong
+    #    distances; missing returns / stack arrays that crash at -O3 or on big graphs
+    git -C "$s" checkout -q -- . && git -C "$s" clean -qfd ||
+      { echo "mlmq: could not reset $s" >&2; return 1; }
+    build_step mlmq "apply $(basename "$MLMQ_PATCH")" git -C "$s" apply "$MLMQ_PATCH" || return 1
+  fi
   # MLMQ hard-codes source 0; read it from $MLMQ_SRC instead (default 0).
   sed -e 's|int src = 0;|int src = getenv("MLMQ_SRC") ? atoi(getenv("MLMQ_SRC")) : 0;|' \
       -e '1i #include <cstdlib>' "$s/SSSP_adaptive/main.cu" > "$s/SSSP_adaptive/main_bench.cu"
@@ -721,7 +743,10 @@ bench_bfs_sssp() {
         skip "mlmq sssp: over 2^31 edges"
       else
         J_LIB=mlmq J_ALGO=adaptive J_T=gpu J_PARSE=p_mlmq J_CHECK=c_mlmq J_PARAM=-
-        run_job env MLMQ_SRC="$s" "$BUILD/mlmq/mlmq-sssp" -i "$gr"
+        # MLMQ's work and manager kernels spin on each other. With lazy module
+        # loading (the default from CUDA 12.2) the manager kernel can't load
+        # while the work kernel holds the GPU, so it deadlocks.
+        run_job env MLMQ_SRC="$s" CUDA_MODULE_LOADING=EAGER "$BUILD/mlmq/mlmq-sssp" -i "$gr"
       fi
     fi
     if ok_to_run adds "$BUILD/mlmq/adds-sssp" "$gr" gpu "adds sssp"; then
