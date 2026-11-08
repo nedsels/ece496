@@ -26,7 +26,7 @@ any `bench.sh` command:
 cd ece496
 export GRAPH_DIR="/home/james/capstone/input graphs/processed_graphs"   # your local graph folders
 export WORK_DIR=/home/james/capstone/bench    # where src/, build/, results/ live; always set it
-export LIBS="galois gunrock mbq adds"         # CUDA ≥ 12: no lonestargpu; mlmq hangs
+export LIBS="galois gunrock mbq mlmq adds"    # CUDA ≥ 12: no lonestargpu
 bench/bench.sh check
 bench/bench.sh build
 bench/bench.sh run
@@ -267,9 +267,17 @@ Only in its own clones under `WORK_DIR/src`; your checkouts are never touched.
   count, so it matches Galois/MBQ's per-node `PR_TOL`. The example hard-codes
   1e-6 on ranks that sum to 1, which stopped Germany after about two
   iterations (4 ms instead of 176 ms).
-- **MLMQ:** reads the source node from `MLMQ_SRC` (it was hard-coded to 0).
-  `GPU_MEMORY` is set to `INT_MAX`: the published `2.0 * 1024^3` overflows
-  `int` with current compilers, making every queue `cudaMalloc` fail.
+- **MLMQ:** `bench/patches/mlmq-fixes.patch` is applied to the pinned commit
+  (it is `git diff` of `ece496/MLMQ`; regenerate it from there). Without it
+  MLMQ hangs on every graph or, with some configurations, gives wrong distances:
+  `GPU_MEMORY` (2^31) overflows its `int` queue size; the work and manager
+  kernels ran in two streams spin-waiting on each other, which the driver
+  doesn't guarantee to run concurrently (they're now one cooperative launch);
+  `__match_any_sync` called from lanes outside its mask counted 1 write as 32;
+  the delta queue overwrote unread entries when a bucket's ring wrapped; plus
+  missing returns and stack arrays that crashed at `-O3` or on large graphs.
+  The source node is read from `MLMQ_SRC` (it was hard-coded to 0).
+  `MLMQ_DIR=/path` builds an already-patched tree instead.
 - **ADDS:** `cub::LaneId()` (removed in CUDA 13) is replaced with the same
   PTX register read, and its summary file is written to the run directory
   instead of a hard-coded `/workspace/...` path that crashed it.
@@ -296,7 +304,8 @@ Tested on the prep machine (RTX 3080 Ti, CUDA 13.3, WSL2):
   Road graphs are slow on Gunrock (6-25 s), as expected for its BFS-style
   frontiers on long paths.
 - **MLMQ and ADDS**, built and run for real. ADDS gave correct SSSP on USA
-  and Germany.
+  and Germany. Patched MLMQ gave correct SSSP on germany-osm, livejournal and
+  usa-road-d (1 warm-up + 5 runs each, Nov 2026).
 - **MBQ A\*, MIS and residual BP**, built and run for real on germany-osm
   with 1 and 8 threads. MIS passed `MISCheck`, the fixed A\* matched its
   Serial path, and RBP's error versus serial was about 0.0017.
@@ -308,9 +317,11 @@ Tested on the prep machine (RTX 3080 Ti, CUDA 13.3, WSL2):
   prerequisites). It should build on a machine with CUDA 11.8.
 
 Two problems on this machine:
-- MLMQ hung on every graph, and ADDS on LiveJournal. Both run GPU kernels
-  that spin-wait on each other, which may not work on WSL2's GPU driver. They
-  are untested on native Linux. A hang costs one `TIMEOUT` per graph; set
-  `LIBS` without `mlmq` to avoid it.
+- ADDS hung on LiveJournal. It runs GPU kernels that spin-wait on each
+  other, which WSL2's GPU driver doesn't guarantee to run concurrently (the
+  same cause as the old MLMQ hang). A hang costs one `TIMEOUT`.
+- MLMQ is slow on usa-road-d (~1.2 s vs ~0.08 s on germany-osm): its adaptive
+  policy picks a FIFO L2 queue for road graphs, which does ~59x Dijkstra's
+  edge relaxations there. That is MLMQ's published policy, so it is kept.
 - If a build fails, its log is in `$WORK_DIR/logs/build-<lib>.log`; the
   other libraries still build and run.
