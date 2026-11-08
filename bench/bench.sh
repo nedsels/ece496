@@ -48,6 +48,11 @@ GALOIS_COMMIT=b67f942
 GUNROCK_COMMIT=748f79e
 MBQ_COMMIT=25d3583
 MLMQ_COMMIT=77d81ab
+# MLMQ is $MLMQ_COMMIT plus bench/patches/mlmq-fixes.patch (see build_mlmq).
+# MLMQ_DIR=/path builds an already-patched tree instead (e.g. ece496/MLMQ while
+# working on the fixes).
+MLMQ_PATCH=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/patches/mlmq-fixes.patch
+MLMQ_DIR=${MLMQ_DIR:-}
 CCCL_TAG=v3.0.3     # Gunrock fetches CCCL's moving main branch; pin a release
 FMT_TAG=9.1.0       # built into WORK_DIR when the system has no libfmt
 
@@ -366,17 +371,26 @@ build_mlmq() {
   local s=$SRC/mlmq b=$BUILD/mlmq gen="-gencode=arch=compute_$CUDA_ARCH,code=sm_$CUDA_ARCH" hc
   hc=$(cuda_host_cxx)
   [[ -n $hc ]] && gen+=" -ccbin '$hc'"
-  build_step mlmq "fetch $MLMQ_COMMIT" fetch "$s" \
-    https://github.com/Leo9660/MLMQ.git "$MLMQ_COMMIT" || return 1
   mkdir -p "$b"
-  # GPU_MEMORY (2.0 * 2^30 bytes of queue) is passed as an int; 2^31
-  # overflows to a negative size with current compilers and every cudaMalloc
-  # fails. INT_MAX is the ~2 GB the authors intended.
-  git -C "$s" checkout -q -- SSSP_adaptive/sssp.cuh
-  sed -i 's|^#define GPU_MEMORY (2.0 \* 1024 \* 1024 \* 1024)|#define GPU_MEMORY (2147483647)|' \
-    "$s/SSSP_adaptive/sssp.cuh"
-  grep -q '^#define GPU_MEMORY (2147483647)' "$s/SSSP_adaptive/sssp.cuh" ||
-    { echo "mlmq: could not patch GPU_MEMORY" >&2; return 1; }
+  if [[ -n $MLMQ_DIR ]]; then
+    s=$SRC/mlmq-local
+    build_step mlmq "copy $MLMQ_DIR" rsync -a --delete --exclude .git \
+      --exclude '*.o' --exclude 'SSSP*/main' --exclude 'ADDS/*/sssp' "$MLMQ_DIR/" "$s/" || return 1
+  else
+    build_step mlmq "fetch $MLMQ_COMMIT" fetch "$s" \
+      https://github.com/Leo9660/MLMQ.git "$MLMQ_COMMIT" || return 1
+    # Upstream MLMQ hangs or gives wrong answers on current GPUs and drivers.
+    # The patch (generated from ece496/MLMQ) fixes, among others:
+    #  - GPU_MEMORY (2^31 bytes) overflowing the int queue size -> cudaMalloc fails
+    #  - work and manager kernels in two streams spin-waiting on each other; not
+    #    guaranteed to run concurrently (never on WSL2) -> one cooperative launch
+    #  - __match_any_sync with lanes outside the mask: 1 write counted as 32 -> hang
+    #  - delta queue: unread entries overwritten when a bucket's ring wraps -> wrong
+    #    distances; missing returns / stack arrays that crash at -O3 or on big graphs
+    git -C "$s" checkout -q -- . && git -C "$s" clean -qfd ||
+      { echo "mlmq: could not reset $s" >&2; return 1; }
+    build_step mlmq "apply $(basename "$MLMQ_PATCH")" git -C "$s" apply "$MLMQ_PATCH" || return 1
+  fi
   # MLMQ hard-codes source 0; read it from $MLMQ_SRC instead (default 0).
   sed -e 's|int src = 0;|int src = getenv("MLMQ_SRC") ? atoi(getenv("MLMQ_SRC")) : 0;|' \
       -e '1i #include <cstdlib>' "$s/SSSP_adaptive/main.cu" > "$s/SSSP_adaptive/main_bench.cu"
@@ -721,7 +735,10 @@ bench_bfs_sssp() {
         skip "mlmq sssp: over 2^31 edges"
       else
         J_LIB=mlmq J_ALGO=adaptive J_T=gpu J_PARSE=p_mlmq J_CHECK=c_mlmq J_PARAM=-
-        run_job env MLMQ_SRC="$s" "$BUILD/mlmq/mlmq-sssp" -i "$gr"
+        # MLMQ's work and manager kernels spin on each other. With lazy module
+        # loading (the default from CUDA 12.2) the manager kernel can't load
+        # while the work kernel holds the GPU, so it deadlocks.
+        run_job env MLMQ_SRC="$s" CUDA_MODULE_LOADING=EAGER "$BUILD/mlmq/mlmq-sssp" -i "$gr"
       fi
     fi
     if ok_to_run adds "$BUILD/mlmq/adds-sssp" "$gr" gpu "adds sssp"; then
