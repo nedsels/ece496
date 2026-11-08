@@ -1,0 +1,660 @@
+diff --git a/ADDS/ads_int/kernel.cu b/ADDS/ads_int/kernel.cu
+index 9ad937c..52e62b8 100644
+--- a/ADDS/ads_int/kernel.cu
++++ b/ADDS/ads_int/kernel.cu
+@@ -5,6 +5,9 @@
+ #include <cmath>
+ #include <cassert>
+ #include <cub/cub.cuh>
++
++// cub::LaneId() was removed in newer CCCL (CUDA 13); read the PTX lane register directly.
++__device__ __forceinline__ unsigned lane_id() { unsigned r; asm volatile("mov.u32 %0, %%laneid;" : "=r"(r)); return r; }
+ #include "common.h"
+ #include "csr_graph.h"
+ #include "support.h"
+@@ -388,10 +391,10 @@ __global__ void profiler_kernel(CSRGraph gg, float* bk_wt, int warp_edge_interva
+ 	for (int n = 0; n < N_TIME; n++) {
+ 		for (int i = 0; i < I_TIME; i++) {
+ 			unsigned warp_offset = ((n * I_TIME + i) * num_warp + warp_id) * warp_edge_interval;
+-			unsigned edge_id = warp_offset + cub::LaneId();
++			unsigned edge_id = warp_offset + lane_id();
+ 			if (edge_id < gg.nedges) {
+ 				thread_data[i] = (float) gg.edge_data[edge_id];
+-				//if (!cub::LaneId()) printf("??? %.2f\n", gg.edge_data[edge_id]);
++				//if (!lane_id()) printf("??? %.2f\n", gg.edge_data[edge_id]);
+ 			} else {
+ 				thread_data[i] = 0;
+ 			}
+@@ -547,7 +550,7 @@ public:
+     bool operator<=(const node_struct_base& b) const;
+     bool operator>=(const node_struct_base& b) const;
+ 
+-    node_struct_base& operator=(const index_type id_in) { this->id = id_in; };
++    node_struct_base& operator=(const index_type id_in) { this->id = id_in; return *this; };
+ 
+     VALUE_TYPE get_data() { return this->dist; };
+ 
+diff --git a/SSSP/sssp.cuh b/SSSP/sssp.cuh
+index 41eee78..cc071bc 100644
+--- a/SSSP/sssp.cuh
++++ b/SSSP/sssp.cuh
+@@ -4,7 +4,8 @@
+ #include "../core/include/ml_queue.cuh"
+ 
+ // 1GB device memory
+-#define GPU_MEMORY (2.0 * 1024 * 1024 * 1024)
++// 2 GB is 2^31, which overflows the int max_size parameter of init_host (UB, gave a negative size -> cudaMalloc OOM).
++#define GPU_MEMORY (2147483647)
+ 
+ // calculate total work count
+ #define ANALYSIS false
+diff --git a/SSSP/sssp_run.cu b/SSSP/sssp_run.cu
+index e3ee056..2891e3e 100644
+--- a/SSSP/sssp_run.cu
++++ b/SSSP/sssp_run.cu
+@@ -397,7 +397,7 @@ int &node_in_num, QUEUE_TYPE mlmq, int qshm_size, int block_id, int warp_id, int
+ }
+ 
+ template <typename QUEUE_TYPE>
+-__global__ void 
++__device__ void 
+ work_block_kernel(int m, int nnz, int *RowPtr, int *ColIdx, VALUE_TYPE *edge_data, VALUE_TYPE *node_data, int src,
+ QUEUE_TYPE mlmq, mlmq_setup setup, int qshm_size, int nshm_size, int *global_exit, work_count_type *global_work_count, int *global_comp_count, int *profile)
+ {
+@@ -605,7 +605,7 @@ unsigned debug_time[3];
+ }
+ 
+ template <typename QUEUE_TYPE>
+-__global__ void manage_block_kernel(int m, int nnz, int *RowPtr, int *ColIdx, int src, QUEUE_TYPE mlmq, int *global_exit)
++__device__ void manage_block_kernel(int m, int nnz, int *RowPtr, int *ColIdx, int src, QUEUE_TYPE mlmq, int *global_exit)
+ {
+     int local_tid = threadIdx.x;
+     int local_wid = local_tid / WARP_SIZE;
+@@ -657,6 +657,34 @@ __global__ void manage_block_kernel(int m, int nnz, int *RowPtr, int *ColIdx, in
+     __syncthreads();
+ }
+ 
++// The work blocks and the manager block spin-wait on each other, so they must run at the
++// same time. They used to be two kernels in two streams, which relies on cross-stream kernel
++// concurrency; that is not guaranteed (WSL2/WDDM never starts the second kernel -> deadlock).
++// Run both roles in one grid instead: blocks [0, gridDim.x - 1) work, the last block manages.
++// The host launches this cooperatively, which guarantees all blocks are co-resident.
++// Largest block the host launches: work warps + 1 local-manager warp, or the manager block's
++// 1 + manage_warp_num() + 1 warps (18 warps for 16 delta-queue buckets). Telling the compiler
++// keeps register use within what such a block can get (an 18-warp block puts 5 warps on one
++// of the SM's 4 register-file partitions, so ~102 regs max); otherwise heavier queue variants
++// compile to more registers and the cooperative launch is refused.
++#define MLMQ_MAX_BLOCK_THREADS (ALIGN_THREAD_PER_BLOCK + 2 * WARP_SIZE)
++
++template <typename QUEUE_TYPE>
++__global__ void __launch_bounds__(MLMQ_MAX_BLOCK_THREADS, 1) mlmq_fused_kernel(int m, int nnz, int *RowPtr, int *ColIdx, VALUE_TYPE *edge_data, VALUE_TYPE *node_data, int src,
++QUEUE_TYPE mlmq, mlmq_setup setup, int qshm_size, int nshm_size, int *global_exit, work_count_type *global_work_count, int *global_comp_count, int *profile, int manage_thread_num)
++{
++    if (blockIdx.x == gridDim.x - 1)
++    {
++        if (threadIdx.x < manage_thread_num)
++            manage_block_kernel<QUEUE_TYPE>(m, nnz, RowPtr, ColIdx, src, mlmq, global_exit);
++    }
++    else
++    {
++        work_block_kernel<QUEUE_TYPE>(m, nnz, RowPtr, ColIdx, edge_data, node_data,
++        src, mlmq, setup, qshm_size, nshm_size, global_exit, global_work_count, global_comp_count, profile);
++    }
++}
++
+ int sssp_init(int m_in, int nnz_in, int *RowPtr_in, int *ColIdx_in, VALUE_TYPE *edge_data_in)
+ {
+     m = m_in;
+@@ -675,6 +703,7 @@ int sssp_init(int m_in, int nnz_in, int *RowPtr_in, int *ColIdx_in, VALUE_TYPE *
+     for (int i = 0; i <= m; i++)
+         node_data_h[i] = init_max;
+     cudaMemcpy(node_data, node_data_h, sizeof(VALUE_TYPE) * (m + 1), cudaMemcpyHostToDevice);
++    delete[] node_data_h;
+     //cudaMemset(node_data + 1, 0, sizeof(VALUE_TYPE) * m);
+ 
+     //printf("node_data %d\n", node_data);
+@@ -715,6 +744,7 @@ int sssp_re_init()
+     for (int i = 0; i <= m; i++)
+         node_data_h[i] = init_max;
+     cudaMemcpy(node_data, node_data_h, sizeof(VALUE_TYPE) * (m + 1), cudaMemcpyHostToDevice);
++    delete[] node_data_h;
+ 
+     cudaMemset(global_exit, 0, sizeof(int));
+ 
+@@ -725,6 +755,8 @@ int sssp_re_init()
+     // }
+ 
+     cudaDeviceSynchronize();
++    // Missing return in a non-void function is UB; at -O3 g++ falls through into the next function (segfault).
++    return 0;
+ }
+ 
+ int sssp_cp_data(VALUE_TYPE **node_data_h)
+@@ -776,7 +808,7 @@ void kernel_adaptive(int src, mlmq_setup setup)
+ 
+         int total_shm_size = (qshm_size + nshm_size + rshm_size + 1023) / 1024 * 1024;
+         //cudaFuncSetAttribute(manage_block_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
+-        cudaFuncSetAttribute(work_block_kernel<QUEUE_TYPE>, cudaFuncAttributeMaxDynamicSharedMemorySize, total_shm_size);
++        cudaFuncSetAttribute(mlmq_fused_kernel<QUEUE_TYPE>, cudaFuncAttributeMaxDynamicSharedMemorySize, total_shm_size);
+ 
+         struct cudaDeviceProp dev_prop;
+         cudaGetDeviceProperties(&dev_prop, 0);
+@@ -792,18 +824,35 @@ void kernel_adaptive(int src, mlmq_setup setup)
+         int work_block_num = dev_prop.multiProcessorCount - 1;
+         // int work_block_num = 1;
+ 
+-        cudaStream_t s1;
+-        cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
+-        work_block_kernel<QUEUE_TYPE><<<work_block_num, ALIGN_THREAD_PER_BLOCK + WARP_SIZE, total_shm_size, s1>>>(m, nnz, RowPtr, ColIdx, edge_data, node_data,
+-        src, mlmq, setup, qshm_size, nshm_size, global_exit, global_work_count, global_comp_count, profile);
+-
++        // One launch: work_block_num work blocks plus one manager block (see mlmq_fused_kernel).
+         int manage_thread_num = WARP_SIZE * (1 + mlmq.manage_warp_num() + 1);
++        int block_threads = max(ALIGN_THREAD_PER_BLOCK + WARP_SIZE, manage_thread_num);
++        if (block_threads > MLMQ_MAX_BLOCK_THREADS)
++        {
++            fprintf(stderr, "MLMQ: %d manager threads exceed MLMQ_MAX_BLOCK_THREADS (%d); use fewer L2 buckets\n", block_threads, MLMQ_MAX_BLOCK_THREADS);
++            exit(1);
++        }
++        void *kernel_args[] = {&m, &nnz, &RowPtr, &ColIdx, &edge_data, &node_data, &src, &mlmq, &setup,
++            &qshm_size, &nshm_size, &global_exit, &global_work_count, &global_comp_count, &profile, &manage_thread_num};
++        cudaError_t launch_err = cudaLaunchCooperativeKernel((void *)mlmq_fused_kernel<QUEUE_TYPE>,
++            work_block_num + 1, block_threads, kernel_args, total_shm_size, 0);
++        if (launch_err != cudaSuccess)
++        {
++            int blocks_per_sm = 0;
++        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks_per_sm, mlmq_fused_kernel<QUEUE_TYPE>, block_threads, total_shm_size);
++        cudaFuncAttributes fa;
++        cudaFuncGetAttributes(&fa, mlmq_fused_kernel<QUEUE_TYPE>);
++        fprintf(stderr, "MLMQ kernel launch failed: %s (%d blocks needed; %d threads/block, %d B dynamic + %d B static shared, %d regs, maxThreadsPerBlock %d, maxDynShared %d, localBytes %d -> %d blocks/SM)\n",
++            cudaGetErrorString(launch_err), work_block_num + 1, block_threads, total_shm_size, (int)fa.sharedSizeBytes, fa.numRegs, fa.maxThreadsPerBlock, fa.maxDynamicSharedSizeBytes, (int)fa.localSizeBytes, blocks_per_sm);
++            exit(1);
++        }
+ 
+-        cudaStream_t s2;
+-        cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
+-        manage_block_kernel<QUEUE_TYPE><<<1, manage_thread_num, 0, s2>>>(m, nnz, RowPtr, ColIdx, src, mlmq, global_exit);
+-
+-        cudaDeviceSynchronize();
++        cudaError_t run_err = cudaDeviceSynchronize();
++        if (run_err != cudaSuccess)
++        {
++            fprintf(stderr, "MLMQ kernel failed: %s\n", cudaGetErrorString(run_err));
++            exit(1);
++        }
+ 
+         cudaEventRecord(stop, 0);
+         cudaEventSynchronize(stop);
+diff --git a/SSSP_adaptive/main.cu b/SSSP_adaptive/main.cu
+index b1fc57e..b99c362 100644
+--- a/SSSP_adaptive/main.cu
++++ b/SSSP_adaptive/main.cu
+@@ -54,8 +54,8 @@ void sssp_sequential(int m, int nnz, int *RowPtr, int *ColIdx, VALUE_TYPE *edge_
+ 
+ 	total_work = 0;
+ 
+-	int done[m];
+-	for (int i = 0; i < m; i++) done[i] = 0;
++	// heap, not a stack VLA: m * 4 bytes overflows the 8 MB stack on large graphs (segfault)
++	std::vector<int> done(m, 0);
+ 
+ 	while (!q.empty())
+ 	{
+diff --git a/SSSP_adaptive/sssp.cuh b/SSSP_adaptive/sssp.cuh
+index ab917c3..dff9c79 100644
+--- a/SSSP_adaptive/sssp.cuh
++++ b/SSSP_adaptive/sssp.cuh
+@@ -4,7 +4,8 @@
+ #include "../core/include/ml_queue.cuh"
+ 
+ // 1GB device memory
+-#define GPU_MEMORY (2.0 * 1024 * 1024 * 1024)
++// 2 GB is 2^31, which overflows the int max_size parameter of init_host (UB, gave a negative size -> cudaMalloc OOM).
++#define GPU_MEMORY (2147483647)
+ 
+ // calculate total work count
+ #define ANALYSIS false
+diff --git a/SSSP_adaptive/sssp_run.cu b/SSSP_adaptive/sssp_run.cu
+index cc3a9bd..2fcf698 100644
+--- a/SSSP_adaptive/sssp_run.cu
++++ b/SSSP_adaptive/sssp_run.cu
+@@ -1,6 +1,7 @@
+ #include "sssp.cuh"
+ #include "ml_queue.cuh"
+ #include <cub/cub.cuh>
++#include <vector>
+ 
+ int m, nnz;
+ int *RowPtr, *ColIdx;
+@@ -373,7 +374,7 @@ int &node_in_num, QUEUE_TYPE mlmq, int qshm_size, int block_id, int warp_id, int
+ }
+ 
+ template <typename QUEUE_TYPE>
+-__global__ void 
++__device__ void 
+ work_block_kernel(int m, int nnz, int *RowPtr, int *ColIdx, VALUE_TYPE *edge_data, VALUE_TYPE *node_data, int src,
+ QUEUE_TYPE mlmq, mlmq_setup setup, int qshm_size, int nshm_size, int *global_exit, int *global_work_count, int *global_comp_count, int *profile)
+ {
+@@ -540,7 +541,7 @@ unsigned debug_time[3];
+ }
+ 
+ template <typename QUEUE_TYPE>
+-__global__ void manage_block_kernel(int m, int nnz, int *RowPtr, int *ColIdx, int src, QUEUE_TYPE mlmq, int *global_exit)
++__device__ void manage_block_kernel(int m, int nnz, int *RowPtr, int *ColIdx, int src, QUEUE_TYPE mlmq, int *global_exit)
+ {
+     int local_tid = threadIdx.x;
+     int local_wid = local_tid / WARP_SIZE;
+@@ -585,6 +586,34 @@ __global__ void manage_block_kernel(int m, int nnz, int *RowPtr, int *ColIdx, in
+     __syncthreads();
+ }
+ 
++// The work blocks and the manager block spin-wait on each other, so they must run at the
++// same time. They used to be two kernels in two streams, which relies on cross-stream kernel
++// concurrency; that is not guaranteed (WSL2/WDDM never starts the second kernel -> deadlock).
++// Run both roles in one grid instead: blocks [0, gridDim.x - 1) work, the last block manages.
++// The host launches this cooperatively, which guarantees all blocks are co-resident.
++// Largest block the host launches: work warps + 1 local-manager warp, or the manager block's
++// 1 + manage_warp_num() + 1 warps (18 warps for 16 delta-queue buckets). Telling the compiler
++// keeps register use within what such a block can get (an 18-warp block puts 5 warps on one
++// of the SM's 4 register-file partitions, so ~102 regs max); otherwise heavier queue variants
++// compile to more registers and the cooperative launch is refused.
++#define MLMQ_MAX_BLOCK_THREADS (ALIGN_THREAD_PER_BLOCK + 2 * WARP_SIZE)
++
++template <typename QUEUE_TYPE>
++__global__ void __launch_bounds__(MLMQ_MAX_BLOCK_THREADS, 1) mlmq_fused_kernel(int m, int nnz, int *RowPtr, int *ColIdx, VALUE_TYPE *edge_data, VALUE_TYPE *node_data, int src,
++QUEUE_TYPE mlmq, mlmq_setup setup, int qshm_size, int nshm_size, int *global_exit, int *global_work_count, int *global_comp_count, int *profile, int manage_thread_num)
++{
++    if (blockIdx.x == gridDim.x - 1)
++    {
++        if (threadIdx.x < manage_thread_num)
++            manage_block_kernel<QUEUE_TYPE>(m, nnz, RowPtr, ColIdx, src, mlmq, global_exit);
++    }
++    else
++    {
++        work_block_kernel<QUEUE_TYPE>(m, nnz, RowPtr, ColIdx, edge_data, node_data,
++        src, mlmq, setup, qshm_size, nshm_size, global_exit, global_work_count, global_comp_count, profile);
++    }
++}
++
+ int sssp_init(int m_in, int nnz_in, int *RowPtr_in, int *ColIdx_in, VALUE_TYPE *edge_data_in)
+ {
+     m = m_in;
+@@ -598,10 +627,9 @@ int sssp_init(int m_in, int nnz_in, int *RowPtr_in, int *ColIdx_in, VALUE_TYPE *
+     
+     VALUE_TYPE init_max = DIST_MAX;
+ 
+-    VALUE_TYPE node_data_h[m + 1];
+-    for (int i = 0; i <= m; i++)
+-        node_data_h[i] = init_max;
+-    cudaMemcpy(node_data, node_data_h, sizeof(VALUE_TYPE) * (m + 1), cudaMemcpyHostToDevice);
++    // heap, not a stack VLA: (m + 1) * 4 bytes overflows the 8 MB stack on large graphs (segfault)
++    std::vector<VALUE_TYPE> node_data_h(m + 1, init_max);
++    cudaMemcpy(node_data, node_data_h.data(), sizeof(VALUE_TYPE) * (m + 1), cudaMemcpyHostToDevice);
+     //cudaMemset(node_data + 1, 0, sizeof(VALUE_TYPE) * m);
+ 
+     //printf("node_data %d\n", node_data);
+@@ -660,7 +688,7 @@ void kernel_adaptive(int src, mlmq_setup setup)
+ 
+     int total_shm_size = (qshm_size + nshm_size + rshm_size + 1023) / 1024 * 1024;
+     //cudaFuncSetAttribute(manage_block_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
+-    cudaFuncSetAttribute(work_block_kernel<QUEUE_TYPE>, cudaFuncAttributeMaxDynamicSharedMemorySize, total_shm_size);
++    cudaFuncSetAttribute(mlmq_fused_kernel<QUEUE_TYPE>, cudaFuncAttributeMaxDynamicSharedMemorySize, total_shm_size);
+ 
+     cudaDeviceSynchronize();
+ 
+@@ -674,18 +702,35 @@ void kernel_adaptive(int src, mlmq_setup setup)
+ 	cudaGetDeviceProperties(&dev_prop, 0);
+     int work_block_num = dev_prop.multiProcessorCount - 1;
+ 
+-    cudaStream_t s1;
+-	cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking);
+-    work_block_kernel<QUEUE_TYPE><<<work_block_num, ALIGN_THREAD_PER_BLOCK + WARP_SIZE, total_shm_size, s1>>>(m, nnz, RowPtr, ColIdx, edge_data, node_data,
+-    src, mlmq, setup, qshm_size, nshm_size, global_exit, global_work_count, global_comp_count, profile);
+-
++    // One launch: work_block_num work blocks plus one manager block (see mlmq_fused_kernel).
+     int manage_thread_num = WARP_SIZE * (1 + mlmq.manage_warp_num() + 1);
++    int block_threads = max(ALIGN_THREAD_PER_BLOCK + WARP_SIZE, manage_thread_num);
++    if (block_threads > MLMQ_MAX_BLOCK_THREADS)
++    {
++        fprintf(stderr, "MLMQ: %d manager threads exceed MLMQ_MAX_BLOCK_THREADS (%d); use fewer L2 buckets\n", block_threads, MLMQ_MAX_BLOCK_THREADS);
++        exit(1);
++    }
++    void *kernel_args[] = {&m, &nnz, &RowPtr, &ColIdx, &edge_data, &node_data, &src, &mlmq, &setup,
++        &qshm_size, &nshm_size, &global_exit, &global_work_count, &global_comp_count, &profile, &manage_thread_num};
++    cudaError_t launch_err = cudaLaunchCooperativeKernel((void *)mlmq_fused_kernel<QUEUE_TYPE>,
++        work_block_num + 1, block_threads, kernel_args, total_shm_size, 0);
++    if (launch_err != cudaSuccess)
++    {
++        int blocks_per_sm = 0;
++        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks_per_sm, mlmq_fused_kernel<QUEUE_TYPE>, block_threads, total_shm_size);
++        cudaFuncAttributes fa;
++        cudaFuncGetAttributes(&fa, mlmq_fused_kernel<QUEUE_TYPE>);
++        fprintf(stderr, "MLMQ kernel launch failed: %s (%d blocks needed; %d threads/block, %d B dynamic + %d B static shared, %d regs -> %d blocks/SM)\n",
++            cudaGetErrorString(launch_err), work_block_num + 1, block_threads, total_shm_size, (int)fa.sharedSizeBytes, fa.numRegs, blocks_per_sm);
++        exit(1);
++    }
+ 
+-    cudaStream_t s2;
+-	cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking);
+-    manage_block_kernel<QUEUE_TYPE><<<1, manage_thread_num, 0, s2>>>(m, nnz, RowPtr, ColIdx, src, mlmq, global_exit);
+-
+-    cudaDeviceSynchronize();
++    cudaError_t run_err = cudaDeviceSynchronize();
++    if (run_err != cudaSuccess)
++    {
++        fprintf(stderr, "MLMQ kernel failed: %s\n", cudaGetErrorString(run_err));
++        exit(1);
++    }
+ 
+     cudaEventRecord(stop, 0);
+     cudaEventSynchronize(stop);
+diff --git a/core/cu_delta_queue/cu_delta_queue.cuh b/core/cu_delta_queue/cu_delta_queue.cuh
+index 67e4ad6..0b2ab59 100644
+--- a/core/cu_delta_queue/cu_delta_queue.cuh
++++ b/core/cu_delta_queue/cu_delta_queue.cuh
+@@ -13,9 +13,22 @@ struct l2_delta_queue
+     // Not considered: When read_pos / write_reserve / write_done overflow.
+     eletype *data;
+ 
+-    // the number of finished writing operations in each memory block
++    // The number of finished writing operations in each memory block, cumulative over laps of
++    // the ring (never reset): the block holding absolute block index B is complete for its
++    // current lap when the count reaches MEM_BLOCK_SIZE * (B / total_block_size + 1).
+     int *block_write_done;
+ 
++    // Ring-wrap safety. Each bucket is a ring of total_size slots. A warp reserves a batch with
++    // atomicAdd(read_ptr), possibly ahead of the writers, and may read only part of it before it
++    // goes off to process its nodes. A slow batch (e.g. a 469k-edge hub) can take longer than
++    // the writers need to go a full lap, and the unread entries used to be overwritten -> lost
++    // relaxations (wrong distances). Now readers record, per batch, the absolute position they
++    // have read up to, and a writer that is about to overwrite a slot whose previous entry was
++    // not read yet re-queues that entry first. A late reader may then see a duplicate, which
++    // SSSP tolerates (stale/duplicate relaxations are filtered by the distance check).
++    int *batch_consumed;
++    int batches_per_bucket;
++
+     // size: bucketNum
+     int *read_pos;
+     int *read_ptr;
+@@ -60,9 +73,16 @@ struct l2_delta_queue
+         cudaMalloc(&block_write_done, sizeof(int) * all_total_block_size);
+         cudaMemset(block_write_done, 0, sizeof(int) * all_total_block_size);
+ 
+-        total_size = (max_size / sizeof(eletype) + bucketNum - 1) / bucketNum / MEM_BLOCK_SIZE * MEM_BLOCK_SIZE;
++        // Rounded down so that bucketNum rings fit in the all_total_size allocation.
++        total_size = all_total_size / bucketNum / MEM_BLOCK_SIZE * MEM_BLOCK_SIZE;
+         total_block_size = total_size / MEM_BLOCK_SIZE;
+ 
++        if (batchSize <= 0 || MEM_BLOCK_SIZE % batchSize != 0)
++            printf("l2_delta_queue: batch size %d must divide %d\n", batchSize, MEM_BLOCK_SIZE);
++        batches_per_bucket = total_size / batchSize;
++        cudaMalloc(&batch_consumed, sizeof(int) * bucketNum * batches_per_bucket);
++        cudaMemset(batch_consumed, 0, sizeof(int) * bucketNum * batches_per_bucket);
++
+         cudaMalloc(&read_pos, sizeof(int) * bucketNum);
+         cudaMemset(read_pos, 0, sizeof(int) * bucketNum);
+         cudaMalloc(&read_ptr, sizeof(int) * bucketNum);
+@@ -104,8 +124,10 @@ struct l2_delta_queue
+         cudaMemset(data, 0, sizeof(eletype) * all_total_size);
+         cudaMemset(block_write_done, 0, sizeof(int) * all_total_block_size);
+ 
+-        total_size = (max_size / sizeof(eletype) + bucketNum - 1) / bucketNum / MEM_BLOCK_SIZE * MEM_BLOCK_SIZE;
++        total_size = all_total_size / bucketNum / MEM_BLOCK_SIZE * MEM_BLOCK_SIZE;
+         total_block_size = total_size / MEM_BLOCK_SIZE;
++        batches_per_bucket = total_size / batchSize;
++        cudaMemset(batch_consumed, 0, sizeof(int) * bucketNum * batches_per_bucket);
+ 
+         cudaMemset(read_pos, 0, sizeof(int) * bucketNum);
+         cudaMemset(read_ptr, 0, sizeof(int) * bucketNum);
+@@ -208,6 +230,11 @@ struct l2_delta_queue
+ 
+                 if (!lane_id)
+                 {
++                    // Publish read progress for this batch (after the copies above).
++                    __threadfence();
++                    batch_consumed[vec_id * batches_per_bucket + (local_read_ptr[vec_id] % total_size) / batchSize]
++                        = local_read_ptr[vec_id] + bucket_read_num;
++
+                     local_read_ptr[vec_id] += bucket_read_num;
+                     if (local_read_ptr[vec_id] == write_reserve[vec_id])
+                         last_read_warp[vec_id] = bid * WARP_NUM_PER_BLOCK + wid;
+@@ -216,9 +243,7 @@ struct l2_delta_queue
+ 
+                     if (local_read_ptr[vec_id] == local_dst_read_ptr[vec_id])
+                     {
+-                        // assume l2_batch_size <= MEM_BLOCK_SIZE
+-                        if (local_dst_read_ptr[vec_id] % MEM_BLOCK_SIZE == 0)
+-                            block_write_done[get_block_addr(((local_dst_read_ptr[vec_id] - 1) / MEM_BLOCK_SIZE) % total_block_size, vec_id)] = 0;
++                        // (block_write_done is cumulative per lap now, so no reset here)
+                         local_read_ptr[vec_id] = -1;
+                     }
+                 }
+@@ -247,59 +272,91 @@ struct l2_delta_queue
+             return READ_SUCCESS;
+     }
+ 
+-    __device__ write_status write(eletype* node_out, int &write_num, int bid, int wid, int lane_id, unsigned *debug_time)
++    // Write one element per valid lane. If a lane's slot still holds an unread entry from the
++    // previous lap, that entry is returned in reloc (need_reloc = true) to be written again.
++    __device__ void write_lanes(eletype elem, bool valid, int first_pos_old, VALUE_TYPE base, int lane_id,
++                                eletype &reloc, bool &need_reloc)
+     {
+-        volatile int first_pos_old = *first_pos;
+-        VALUE_TYPE base = first_pos_old * delta;
+-        for (int i = 0; i < write_num; i+=WARP_SIZE)
++        need_reloc = false;
++        int dst_bucket_id = -1;
++        int write_pos = 0;
++
++        if (valid)
+         {
+-            int out_pos = i + lane_id;
++            dst_bucket_id = (int)((elem.get_data() - base) / delta);
++            if (dst_bucket_id < 0) dst_bucket_id = 0;
++            if (dst_bucket_id >= bucketNum) dst_bucket_id = bucketNum - 1;
++            dst_bucket_id = (first_pos_old + dst_bucket_id) % bucketNum;
++        }
+ 
+-            int dst_bucket_id = -1;
+-            int write_pos = 0;
+-            
+-            if (out_pos < write_num)
+-            {
+-                dst_bucket_id = (int)((node_out[out_pos].get_data() - base) / delta);
+-                if (dst_bucket_id < 0) dst_bucket_id = 0;
+-                if (dst_bucket_id >= bucketNum) dst_bucket_id = bucketNum - 1;
+-                dst_bucket_id = (first_pos_old + dst_bucket_id) % bucketNum;
+-            }
++        // Full-warp match (all lanes execute this); inactive lanes hold -1 and group only with each other.
++        unsigned write_mask = __match_any_sync(FULL_MASK, dst_bucket_id);
++        int leader_lane = find_ms_bit(write_mask);
++        write_pos = count_bit(set_bits(write_mask, 0, lane_id, 32));
++        int write_bucket_num = count_bit(write_mask);
++
++        int current_reserve;
++        if (valid && lane_id == leader_lane)
++        {
++            current_reserve = atomicAdd(&write_reserve[dst_bucket_id], write_bucket_num);
++        }
++        __syncwarp();
++        current_reserve = __shfl_sync(write_mask, current_reserve, leader_lane);
+ 
+-            unsigned active_mask = __ballot_sync(FULL_MASK, dst_bucket_id != -1);
+-            unsigned write_mask = __match_any_sync(active_mask, dst_bucket_id);
+-            int leader_lane = find_ms_bit(write_mask);
+-            write_pos = count_bit(set_bits(write_mask, 0, lane_id, 32));
+-            int write_bucket_num = count_bit(write_mask);
++        int abs_pos = current_reserve + write_pos;
++        int global_idx = get_bucket_addr(abs_pos % total_size, dst_bucket_id);
++        int block_idx = global_idx / MEM_BLOCK_SIZE;
++        unsigned block_mask = __match_any_sync(write_mask, block_idx) & write_mask;
++        int block_leader_lane = find_ms_bit(block_mask);
++        int block_write_num = count_bit(block_mask);
+ 
+-            int current_reserve;
+-            if (out_pos < write_num && lane_id == leader_lane)
++        if (valid)
++        {
++            if (abs_pos >= total_size)
+             {
+-                current_reserve = atomicAdd(&write_reserve[dst_bucket_id], write_bucket_num);
+-                    //printf("dst_bucket_id %d after current_reserve %d write_reserve[dst_bucket_id] %d write_bucket_num %d data %d %d\n", dst_bucket_id,
+-                    //current_reserve, write_reserve[dst_bucket_id], write_bucket_num, node_out[out_pos].id, node_out[out_pos].dist);
++                // Previous occupant of this slot: absolute position abs_pos - total_size.
++                int prev_pos = abs_pos - total_size;
++                int consumed = ((volatile int *)batch_consumed)[dst_bucket_id * batches_per_bucket + (prev_pos % total_size) / batchSize];
++                if (consumed <= prev_pos)
++                {
++                    reloc = data[global_idx];
++                    need_reloc = true;
++                }
+             }
+-            __syncwarp();
+-            current_reserve = __shfl_sync(write_mask, current_reserve, leader_lane);
++            data[global_idx] = elem;
++        }
+ 
+-            int global_idx = get_bucket_addr((current_reserve + write_pos) % total_size, dst_bucket_id);
+-            int block_idx = global_idx / MEM_BLOCK_SIZE;
+-            unsigned block_mask = __match_any_sync(write_mask, block_idx);
+-            int block_leader_lane = find_ms_bit(block_mask);
+-            int block_write_num = count_bit(block_mask);
++        // Make the data visible before publishing it through block_write_done.
++        __threadfence();
++        __syncwarp();
++        if (valid && lane_id == block_leader_lane)
++        {
++            atomicAdd(&block_write_done[block_idx], block_write_num);
++            atomicAdd(debug_write_done, block_write_num);
++        }
++        __syncwarp();
++    }
+ 
+-            if (out_pos < write_num)
+-                data[global_idx] = node_out[out_pos];
+-            
+-            __syncwarp();
+-            if (out_pos < write_num && lane_id == block_leader_lane)
++    __device__ write_status write(eletype* node_out, int &write_num, int bid, int wid, int lane_id, unsigned *debug_time)
++    {
++        volatile int first_pos_old = *first_pos;
++        VALUE_TYPE base = first_pos_old * delta;
++        for (int i = 0; i < write_num; i+=WARP_SIZE)
++        {
++            int out_pos = i + lane_id;
++            bool valid = out_pos < write_num;
++            eletype elem;
++            if (valid) elem = node_out[out_pos];
++
++            // Rounds after the first only re-queue entries displaced by ring wrap (rare).
++            while (__any_sync(FULL_MASK, valid))
+             {
+-                atomicAdd(&block_write_done[block_idx], block_write_num);
+-                atomicAdd(debug_write_done, block_write_num);
++                eletype reloc;
++                bool need_reloc;
++                write_lanes(elem, valid, first_pos_old, base, lane_id, reloc, need_reloc);
++                valid = need_reloc;
++                if (need_reloc) elem = reloc;
+             }
+-            __threadfence();
+-
+-            __syncwarp();
+         }
+ 
+         return WRITE_SUCCESS;
+@@ -321,12 +378,14 @@ struct l2_delta_queue
+             for (; i < end_block_idx + 1; i += WARP_SIZE)
+             {
+                 int block_idx = i + lane_id;
+-                int current_write_done = block_write_done[get_block_addr(block_idx % total_block_size, manager_id)];
++                // Count for this lap of the block (counts accumulate over laps).
++                int current_write_done = ((volatile int *)block_write_done)[get_block_addr(block_idx % total_block_size, manager_id)]
++                    - MEM_BLOCK_SIZE * (block_idx / total_block_size);
+                 bool block_valid = i < end_block_idx;
+                 bool block_nofull = true;
+ 
+                 if (block_valid)
+-                    block_nofull = current_write_done != MEM_BLOCK_SIZE;
++                    block_nofull = current_write_done < MEM_BLOCK_SIZE;
+ 
+                 unsigned nofull_mask = __ballot_sync(FULL_MASK, block_nofull);
+                 __syncwarp();
+diff --git a/core/cu_vector/cu_vector.cuh b/core/cu_vector/cu_vector.cuh
+index 5ccfee5..8ea101a 100644
+--- a/core/cu_vector/cu_vector.cuh
++++ b/core/cu_vector/cu_vector.cuh
+@@ -170,7 +170,10 @@ struct l2_vector_queue
+             int block_idx = global_idx / MEM_BLOCK_SIZE;
+             
+             unsigned write_mask = __ballot_sync(FULL_MASK, write_valid);
+-            unsigned block_mask = __match_any_sync(write_mask, block_idx);
++            // Every lane executes this, so match over the full warp, then keep only lanes that write.
++            // (Passing write_mask from lanes outside it is UB; on CUDA 13 the match spans all 32 lanes,
++            // a 1-element write counts as 32, block_write_done never equals the reserve -> stall.)
++            unsigned block_mask = __match_any_sync(FULL_MASK, block_idx) & write_mask;
+             int leader_lane = find_ms_bit(block_mask);
+             int block_write_num = count_bit(block_mask);
+ 
+@@ -178,7 +181,7 @@ struct l2_vector_queue
+                 data[global_idx] = node_out[write_idx];
+             __threadfence();
+ 
+-            if (lane_id == leader_lane)
++            if (write_valid && lane_id == leader_lane)
+             {
+                 atomicAdd(&block_write_done[block_idx % total_block_size], block_write_num);
+             }
+diff --git a/core/new_filter/new_filter_queue.cuh b/core/new_filter/new_filter_queue.cuh
+index 7f5458b..4e9b32a 100644
+--- a/core/new_filter/new_filter_queue.cuh
++++ b/core/new_filter/new_filter_queue.cuh
+@@ -94,7 +94,7 @@ __device__ write_status l1_filter_queue_new<eletype> :: write(eletype *node_out,
+         unsigned valid_mask = __ballot_sync(FULL_MASK, valid);
+ 
+         bool update_local = valid && node_out[i].get_data() < base + l1_filter_delta;
+-        unsigned write_local_mask = __ballot_sync(valid_mask, update_local);
++        unsigned write_local_mask = __ballot_sync(FULL_MASK, update_local);
+         int local_write_num = count_bit(write_local_mask);
+         int local_update_pos = count_bit(set_bits(write_local_mask, 0, lane_id, 32));
+ 
+@@ -109,7 +109,7 @@ __device__ write_status l1_filter_queue_new<eletype> :: write(eletype *node_out,
+         }
+ 
+         bool update_global = valid && node_out[i].get_data() >= base + l1_filter_delta;
+-        unsigned write_global_mask = __ballot_sync(valid_mask, update_global);
++        unsigned write_global_mask = __ballot_sync(FULL_MASK, update_global);
+         int global_update_pos = count_bit(set_bits(write_global_mask, 0, lane_id, 32));
+ 
+         if (update_global)
+diff --git a/core/src/l1_queue.cu b/core/src/l1_queue.cu
+index c0df994..6066e5e 100644
+--- a/core/src/l1_queue.cu
++++ b/core/src/l1_queue.cu
+@@ -179,7 +179,7 @@ __device__ write_status l1_filter_queue<eletype> :: write(eletype *node_out, ele
+         unsigned valid_mask = __ballot_sync(FULL_MASK, valid);
+ 
+         bool update_local = valid && node_out[i].get_data() < base + l1_filter_delta;
+-        unsigned write_local_mask = __ballot_sync(valid_mask, update_local);
++        unsigned write_local_mask = __ballot_sync(FULL_MASK, update_local);
+         int local_write_num = count_bit(write_local_mask);
+         int local_update_pos = count_bit(set_bits(write_local_mask, 0, lane_id, 32));
+ 
+@@ -194,7 +194,7 @@ __device__ write_status l1_filter_queue<eletype> :: write(eletype *node_out, ele
+         }
+ 
+         bool update_global = valid && node_out[i].get_data() >= base + l1_filter_delta;
+-        unsigned write_global_mask = __ballot_sync(valid_mask, update_global);
++        unsigned write_global_mask = __ballot_sync(FULL_MASK, update_global);
+         int global_update_pos = count_bit(set_bits(write_global_mask, 0, lane_id, 32));
+ 
+         if (update_global)
+@@ -294,7 +294,7 @@ __device__ write_status l1_SLF_queue<eletype> :: write(eletype *node_out, eletyp
+ 
+         bool is_left = data_size? node_out[i].get_data() < data[l].get_data() : node_out[i].get_data() < node_out[0].get_data();
+         bool update_left = valid && is_left, update_right = valid && !is_left;
+-        unsigned write_left_mask = __ballot_sync(valid_mask, update_left), write_right_mask = __ballot_sync(valid_mask, update_right);
++        unsigned write_left_mask = __ballot_sync(FULL_MASK, update_left), write_right_mask = __ballot_sync(FULL_MASK, update_right);
+         int write_left_num = count_bit(write_left_mask), write_right_num = count_bit(write_right_mask);
+         int update_left_pos = count_bit(set_bits(write_left_mask, 0, lane_id, 32)), update_right_pos = count_bit(set_bits(write_right_mask, 0, lane_id, 32));
+         // printf("%d %d %d\n",lane_id, update_left_pos, update_right_pos);
