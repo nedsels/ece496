@@ -161,6 +161,12 @@ static __global__ void sssp_kernel(
             // TODO: Handle floating point precision errors
             if (task_dist == best_dist && degree > 0) {
                 new_tasks = (task_type*)malloc(degree * sizeof(task_type));
+                if (new_tasks == nullptr) {
+					// Device heap exhausted; abort the kernel so the host sees an error
+					// instead of silently dropping tasks.
+					printf("sssp kernel: device malloc of %u tasks failed\n", (unsigned)degree);
+					__trap();
+				}
                 for (index_type e_rel = 0; e_rel < degree; e_rel++) {
                     index_type nbr = graph.getDestination(v, e_rel);
                     // dist(v) = dist(u) + weight(u, v) for u --> v

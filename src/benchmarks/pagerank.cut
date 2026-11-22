@@ -201,6 +201,12 @@ static __global__ void page_rank_kernel(
             if (degree > 0 && residual > 0.0f) {
                 const float shared_residual = damping * residual / static_cast<float>(degree);
                 new_tasks = (task_type*)malloc(degree * sizeof(task_type));
+                if (new_tasks == nullptr) {
+					// Device heap exhausted; abort the kernel so the host sees an error
+					// instead of silently dropping tasks.
+					printf("pr kernel: device malloc of %u tasks failed\n", (unsigned)degree);
+					__trap();
+				}
                 for (index_type e_rel = 0; e_rel < degree; e_rel++) {
                     index_type nbr = graph.getDestination(v, e_rel);
                     // Update neighbour's residual
