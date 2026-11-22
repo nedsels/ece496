@@ -94,10 +94,11 @@ Benchmarks::Status PAGERANK<GraphType>::copy_to_host() {
 template <typename GraphType>
 template <typename SchedulerType>
 Benchmarks::Status PAGERANK<GraphType>::solve(
-    GraphType d_graph, SchedulerType* d_scheduler, 
-    unsigned grid_size, unsigned block_size
+    GraphType d_graph, SchedulerType* d_scheduler, const cudaDeviceProp& prop
 ) {
-    page_rank_kernel<<<grid_size, block_size>>>(
+    const unsigned num_blocks = prop.multiProcessorCount >> 1;
+	const unsigned block_size = prop.maxThreadsPerBlock >> 1;
+    page_rank_kernel<<<num_blocks, block_size>>>(
         d_graph, d_ranks, d_residuals, damping_factor, epsilon, d_scheduler
     );
 

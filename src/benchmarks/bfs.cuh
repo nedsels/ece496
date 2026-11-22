@@ -2,10 +2,18 @@
 #include <common/task.h>
 #include <benchmarks/benchmarks.cuh>
 
+// Comment out to run non-cooperative warp version
+#ifndef COOP_VERSION
+#define COOP_VERSION
+#endif
+
 template <typename GraphType>
 struct BFS {
 	using index_type = typename GraphType::index_type;
 	using TaskType = Task<index_type, unsigned>;
+#ifdef COOP_VERSION
+	using Vertex = VertexInfo<index_type, unsigned>;
+#endif
 
     // Initialize; must be called before any other functions
     // Alloc memory on host and device, and reset distances to
@@ -21,8 +29,7 @@ struct BFS {
 	// Run BFS on d_graph.
 	template <typename SchedulerType>
 	Benchmarks::Status solve(
-		GraphType d_graph, SchedulerType* d_scheduler, 
-		unsigned grid_size, unsigned block_size
+		GraphType d_graph, SchedulerType* d_scheduler, const cudaDeviceProp& prop
 	);
 
 	// Print distances by vertex on host

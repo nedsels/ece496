@@ -78,10 +78,11 @@ Benchmarks::Status A_STAR<GraphType>::copy_to_host() {
 template <typename GraphType>
 template <typename SchedulerType>
 Benchmarks::Status A_STAR<GraphType>::solve(
-    GraphType d_graph, SchedulerType* d_scheduler, 
-    unsigned grid_size, unsigned block_size
+    GraphType d_graph, SchedulerType* d_scheduler, const cudaDeviceProp& prop
 ) {
-    a_star_kernel<<<grid_size, block_size>>>(
+    const unsigned num_blocks = prop.multiProcessorCount >> 1;
+	const unsigned block_size = prop.maxThreadsPerBlock >> 1;
+    a_star_kernel<<<num_blocks, block_size>>>(
         d_graph, src, dst, d_distances, d_scheduler
     );
 

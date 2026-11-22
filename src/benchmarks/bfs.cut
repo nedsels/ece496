@@ -12,10 +12,22 @@
 #include <cstring>
 #include <iostream>
 
+#ifndef COOP_VERSION
 template <typename GraphType, typename SchedulerType>
 static __global__ void bfs_kernel(GraphType graph,
                                   typename GraphType::index_type source,
                                   unsigned* dist, SchedulerType* scheduler);
+#endif
+
+#ifdef COOP_VERSION
+// Experimental
+// Version of kernel that uses cooperative warp strategy
+template <typename GraphType, typename SchedulerType>
+static __global__ void bfs_kernel_coop_warp(
+	GraphType graph, typename GraphType::index_type source,
+    unsigned* dist, SchedulerType* scheduler
+);
+#endif
 
 template <typename GraphType>
 Benchmarks::Status BFS<GraphType>::init(const GraphType& graph, const Benchmarks::BenchmarkConfig& config) {
@@ -60,12 +72,27 @@ Benchmarks::Status BFS<GraphType>::copy_to_host() {
 template <typename GraphType>
 template <typename SchedulerType>
 Benchmarks::Status BFS<GraphType>::solve(
-	GraphType d_graph, SchedulerType* d_scheduler, 
-	unsigned grid_size, unsigned block_size) {
-	bfs_kernel<<<grid_size, block_size>>>(
-		d_graph, src, 
-		d_distances, d_scheduler
+	GraphType d_graph, SchedulerType* d_scheduler, const cudaDeviceProp& prop
+) {
+	const unsigned num_blocks = prop.multiProcessorCount >> 1;
+
+#ifndef COOP_VERSION
+	const unsigned block_size = prop.maxThreadsPerBlock >> 1;
+	bfs_kernel<<<num_blocks, block_size>>>(
+		d_graph, src, d_distances, d_scheduler
 	);
+#endif
+#ifdef COOP_VERSION
+	// TODO: tune the shared memory size -- currently set to max size
+	// Allocation needs to be large enough such that every lane gets a unique index to write to
+	// If default max is 48KB and the vertex info is 16B, we can support up to 3072 lanes (threads) or 96 warps in a block
+	const unsigned block_size = prop.maxThreadsPerBlock >> 1;
+	assert(block_size <= prop.sharedMemPerBlock / sizeof(typename Vertex));
+	const unsigned shared_mem_size_alloc = block_size * sizeof(typename Vertex);
+	bfs_kernel_coop_warp<<<num_blocks, block_size, shared_mem_size_alloc>>>(
+		d_graph, src, d_distances, d_scheduler
+	);
+#endif
 	CUDA_CHECK(cudaGetLastError());
 	CUDA_CHECK(cudaDeviceSynchronize());
 	return Benchmarks::Status::SUCCESS;
@@ -87,6 +114,7 @@ Benchmarks::Status BFS<GraphType>::dealloc() {
 	return Benchmarks::Status::SUCCESS;
 }
 
+#ifndef COOP_VERSION
 template <typename GraphType, typename SchedulerType>
 static __global__ void bfs_kernel(
 	GraphType graph, typename GraphType::index_type source,
@@ -137,3 +165,82 @@ static __global__ void bfs_kernel(
 		}
 	}
 }
+#endif
+
+// Each lane pops a task from the scheduler
+// Each task represents a vertex to process (for now)
+// If we determine the task is not stale (i.e. distance is up to date with global result), we push the vertex into a work pool
+// Sync across all warps
+// This work pool is in shared memory. Work is shared between warps
+// Atomic edge index for each vertex (maintain end_edge and next_edge)
+// Lane will take edge to process by atomically incrementing next_edge
+// Create new task from the outgoing edge
+// Lanes keep doing this as long as there is work to do (i.e. there exists at least one vertex that doesn't have all outgoing edges traversed)
+// When no work, call push for each thread for their generated tasks
+// Repeat
+#ifdef COOP_VERSION
+template <typename GraphType, typename SchedulerType>
+static __global__ void bfs_kernel_coop_warp(
+	GraphType graph, typename GraphType::index_type source,
+    unsigned* dist, SchedulerType* scheduler, const unsigned work_pool_size
+) {
+	const unsigned thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+	const unsigned lane_id = thread_id & 31;
+
+	using task_type = typename BFS<GraphType>::TaskType;
+	using index_type = typename GraphType::index_type;
+	using vertex_info = typename BFS<GraphType>::Vertex;
+
+	// Shared memory
+	// TODO: check memory alignment
+	// Shared memory accessible by whole block
+	// Each lane has unique index it can write to 
+	// The expectation is that only threads in the same warp will access each other's indices
+	// Therefore we can safely interact with this struction using warp synchronization
+	extern __shared__ __align__(16) vertex_info work_pool[];
+
+	task_type source_task = {source, 0};
+	unsigned num_tasks = 0;
+	if (thread_id == 0) {
+		atomicExch(&(dist[source]), 0);
+		num_tasks = 1;
+	}
+	scheduler->push(&source_task, num_tasks, lane_id);
+
+	task_type task;
+	unsigned tasks_read;
+	while (scheduler->pop(&task, &tasks_read, warpSize, blockIdx.x, lane_id) != POP_DONE) {
+		// pop() writes to the lowest lanes
+		if (lane_id < tasks_read) {
+			const index_type v = task.item;
+			const unsigned prev_dist = task.priority;
+			const unsigned curr_dist = dist[v];
+			const index_type degree = graph.getOutDegree(v);
+			// There is work to do
+			// TODO: worried about warp divergence if threads are waiting to write to the buffer because it is full
+			if (curr_dist == prev_dist && degree > 0) {
+				// Create work item to push into task pool
+				Vertex vertex = {
+					.id = v,
+					.next_edge = 0,
+					.end_edge = degree,
+					.priority = prev_dist
+				};
+				// TODO: Maybe only try push here because otherwise we idle
+				// We still have to push the vertex eventually because we removed the task from the scheduler
+				work_pool->push(vertex);
+			}
+		}
+		// Do work from the work pool
+		
+
+		if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
+			printf("Deadlock\n");
+			assert(false);
+		}
+		if (new_tasks != nullptr) {
+			free(new_tasks);
+		}
+	}
+}
+#endif

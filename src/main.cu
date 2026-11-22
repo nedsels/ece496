@@ -161,8 +161,7 @@ Benchmarks::Status run_benchmark(const char* graph_path, const Benchmarks::Bench
           scheduler_impl.init(scheduler_byte_capacity, num_blocks, num_warps);
           auto* d_scheduler = scheduler_impl.device_setup(prop);
           if (d_scheduler == nullptr ||
-              benchmark.solve(d_graph, d_scheduler, num_blocks,
-                              warps_per_block * prop.warpSize) == Benchmarks::Status::ERROR ||
+              benchmark.solve(d_graph, d_scheduler, prop) == Benchmarks::Status::ERROR ||
               benchmark.copy_to_host() == Benchmarks::Status::ERROR) {
             result = Benchmarks::Status::ERROR;
           }
