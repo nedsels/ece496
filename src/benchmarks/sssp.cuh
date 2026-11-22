@@ -34,6 +34,9 @@ struct SSSP {
     // Print distances by vertex on host
     void print_result();
 
+    // Write host distances to path as raw uint32 values, one per vertex.
+    Benchmarks::Status write_results(const char* path);
+
     // Dealloc on both host and device.
     Benchmarks::Status dealloc();
 
@@ -43,6 +46,8 @@ struct SSSP {
     weight_type* h_distances = nullptr;  /* Host */
     weight_type* d_distances =  nullptr; /* Device */
     bool initialized = false;
+    // Kernel time of the last solve(), measured with cudaEvents.
+    float kernel_ms = 0.0f;
 };
 
 #include <benchmarks/sssp.cut>

@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
               << " <a_star> <graph.gr> <weight-type> <scheduler> <source> <destination>\n"
               << " <pr> <graph.gr> <weight-type> <scheduler> <damping factor> <epsilon>\n"
               << " optional flags: [--out FILE] [--time] [--verbose]\n"
-              << "weight-type: int32, uint32\n"
+              << " weight-type: int32, uint32\n"
               << "scheduler: initial_scheduler\n"
               << "--out FILE: write distances to FILE as raw uint32 values\n"
               << "--time: print {\"kernel_ms\": ..., \"load_ms\": ...}\n"
@@ -204,7 +204,7 @@ Benchmarks::Status run_benchmark(
 
     if (result == Benchmarks::Status::SUCCESS) {
       if (options.out_path != nullptr &&
-          benchmark.write_distances(options.out_path) == Benchmarks::Status::ERROR) {
+          benchmark.write_results(options.out_path) == Benchmarks::Status::ERROR) {
         result = Benchmarks::Status::ERROR;
       }
       // Without --out, printing is the only way to see the result.

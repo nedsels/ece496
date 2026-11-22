@@ -97,13 +97,23 @@ Benchmarks::Status PAGERANK<GraphType>::solve(
     GraphType d_graph, SchedulerType* d_scheduler, 
     unsigned grid_size, unsigned block_size
 ) {
+    cudaEvent_t start, stop;
+	CUDA_CHECK(cudaEventCreate(&start));
+  	CUDA_CHECK(cudaEventCreate(&stop));
+
+	CUDA_CHECK(cudaEventRecord(start));
     page_rank_kernel<<<grid_size, block_size>>>(
         d_graph, d_ranks, d_residuals, damping_factor, epsilon, d_scheduler
     );
+	CUDA_CHECK(cudaGetLastError());
+	CUDA_CHECK(cudaEventRecord(stop));
+	CUDA_CHECK(cudaDeviceSynchronize());
+	CUDA_CHECK(cudaEventElapsedTime(&kernel_ms, start, stop));
 
-    CUDA_CHECK(cudaGetLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
-    return Benchmarks::Status::SUCCESS;
+	CUDA_CHECK(cudaEventDestroy(start));
+	CUDA_CHECK(cudaEventDestroy(stop));
+
+	return Benchmarks::Status::SUCCESS;
 }
 
 template <typename GraphType>
@@ -113,6 +123,22 @@ void PAGERANK<GraphType>::print_result() {
         std::cout << i << ":" << h_ranks[i] << " ";
     }
     std::cout << std::endl;
+}
+
+template <typename GraphType>
+Benchmarks::Status PAGERANK<GraphType>::write_results(const char* path) {
+  FILE* file = fopen(path, "wb");
+  if (file == nullptr) {
+    std::cerr << "Unable to open output file: " << path << '\n';
+    return Benchmarks::Status::ERROR;
+  }
+  const size_t written = fwrite(h_ranks, sizeof(float), nnodes, file);
+  const bool closed = fclose(file) == 0;
+  if (written != static_cast<size_t>(nnodes) || !closed) {
+    std::cerr << "Failed writing output file: " << path << '\n';
+    return Benchmarks::Status::ERROR;
+  }
+  return Benchmarks::Status::SUCCESS;
 }
 
 template <typename GraphType>

@@ -17,7 +17,7 @@ TEST_GRAPHS_DIR = REPO_ROOT / "graphs" / "inputs" / "test"
 GPU_BIN = Path(os.environ.get("ECE496_BIN", REPO_ROOT / "bin" / "ece496"))
 GPU_TIMEOUT_S = 180
 
-
+# TODO: This needs to be updated so the command is dynamic depending on the benchmark to run
 def run_gpu(benchmark, graph_path, source=0, out=None, weight_type="int32",
             scheduler="initial_scheduler", time=False, verbose=False,
             check=True):
@@ -29,8 +29,8 @@ def run_gpu(benchmark, graph_path, source=0, out=None, weight_type="int32",
     """
     if not GPU_BIN.is_file():
         pytest.fail(f"{GPU_BIN} not found; build it with cmake first")
-    cmd = [str(GPU_BIN), benchmark, str(graph_path), str(source), weight_type,
-           scheduler]
+    cmd = [str(GPU_BIN), benchmark, str(graph_path), weight_type, scheduler, 
+           str(source)]
     if out is not None:
         cmd += ["--out", str(out)]
     if time:

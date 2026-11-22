@@ -19,7 +19,6 @@
 #include <fstream>
 #include <limits>
 #include <vector>
-<<<<<<< HEAD
 #include <utility>
 
 template <typename WeightType, typename NodeDataType>
@@ -29,16 +28,6 @@ CSRGraph<WeightType, NodeDataType>::CSRGraph() {
 
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::init() {
-=======
-
-template <typename WeightType>
-CSRGraph<WeightType>::CSRGraph() {
-  init();
-}
-
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::init() {
->>>>>>> origin/main
   nnodes = 0;
   nedges = 0;
   row_start = nullptr;
@@ -50,13 +39,8 @@ unsigned CSRGraph<WeightType>::init() {
   return 0;
 }
 
-<<<<<<< HEAD
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::allocOnHost() {
-=======
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::allocOnHost() {
->>>>>>> origin/main
   if (nnodes <= 0 || device_graph) {
     return 0;
   }
@@ -81,13 +65,8 @@ unsigned CSRGraph<WeightType>::allocOnHost() {
   return 1;
 }
 
-<<<<<<< HEAD
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::allocOnDevice() {
-=======
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::allocOnDevice() {
->>>>>>> origin/main
   if (nnodes <= 0 || device_graph || row_start != nullptr) {
     return 0;
   }
@@ -123,13 +102,8 @@ unsigned CSRGraph<WeightType>::allocOnDevice() {
   return 1;
 }
 
-<<<<<<< HEAD
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::deallocOnHost() {
-=======
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::deallocOnHost() {
->>>>>>> origin/main
   if (!device_graph) {
     std::free(row_start);
     std::free(edge_dst);
@@ -143,13 +117,8 @@ unsigned CSRGraph<WeightType>::deallocOnHost() {
   return 0;
 }
 
-<<<<<<< HEAD
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::deallocOnDevice() {
-=======
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::deallocOnDevice() {
->>>>>>> origin/main
   if (device_graph) {
     cudaFree(row_start);
     cudaFree(edge_dst);
@@ -164,7 +133,6 @@ unsigned CSRGraph<WeightType>::deallocOnDevice() {
   return 0;
 }
 
-<<<<<<< HEAD
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::dealloc() {
   return device_graph ? deallocOnDevice() : deallocOnHost();
@@ -172,15 +140,6 @@ unsigned CSRGraph<WeightType, NodeDataType>::dealloc() {
 
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::copy_to_gpu(CSRGraph& copygraph) const {
-=======
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::dealloc() {
-  return device_graph ? deallocOnDevice() : deallocOnHost();
-}
-
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::copy_to_gpu(CSRGraph& copygraph) const {
->>>>>>> origin/main
   if (device_graph || copygraph.device_graph) {
     return 0;
   }
@@ -208,13 +167,8 @@ unsigned CSRGraph<WeightType>::copy_to_gpu(CSRGraph& copygraph) const {
   return 1;
 }
 
-<<<<<<< HEAD
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::copy_to_cpu(CSRGraph& copygraph) const {
-=======
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::copy_to_cpu(CSRGraph& copygraph) const {
->>>>>>> origin/main
   if (!device_graph) {
     return 0;
   }
@@ -242,13 +196,8 @@ unsigned CSRGraph<WeightType>::copy_to_cpu(CSRGraph& copygraph) const {
   return 1;
 }
 
-<<<<<<< HEAD
 template <typename WeightType, typename NodeDataType>
 unsigned CSRGraph<WeightType, NodeDataType>::readFromGR(const char* file) {
-=======
-template <typename WeightType>
-unsigned CSRGraph<WeightType>::readFromGR(const char* file) {
->>>>>>> origin/main
   if (file == nullptr) {
     return 1;
   }
@@ -282,7 +231,6 @@ unsigned CSRGraph<WeightType>::readFromGR(const char* file) {
     }
     return value;
   };
-<<<<<<< HEAD
   // Node data can be signed
   const auto read_i32 = [&read_le32](std::size_t offset) {
     const std::uint32_t bits = read_le32(offset);
@@ -290,8 +238,6 @@ unsigned CSRGraph<WeightType>::readFromGR(const char* file) {
     std::memcpy(&value, &bits, sizeof(value));
     return static_cast<int>(value);
   };
-=======
->>>>>>> origin/main
 
   const std::uint64_t version = read_le64(0);
   const std::uint64_t weight_size = read_le64(8);
@@ -321,7 +267,6 @@ unsigned CSRGraph<WeightType>::readFromGR(const char* file) {
     return 1;
   }
 
-<<<<<<< HEAD
   // ---- optional node-data trailer (follows the edge weights) ----
   // Layout: u64 kind (1 = int per node, 2 = pair<int,int> per node), then
   // node_count records. Validated here, before any allocation.
@@ -351,8 +296,6 @@ unsigned CSRGraph<WeightType>::readFromGR(const char* file) {
     }
   }
 
-=======
->>>>>>> origin/main
   dealloc();
   nnodes = static_cast<index_type>(node_count);
   nedges = static_cast<index_type>(edge_count);
@@ -408,7 +351,6 @@ unsigned CSRGraph<WeightType>::readFromGR(const char* file) {
     }
   }
 
-<<<<<<< HEAD
   if (has_node_data) {
     for (index_type node = 0; node < nnodes; ++node) {
       if constexpr (node_is_pair) {
@@ -423,13 +365,10 @@ unsigned CSRGraph<WeightType>::readFromGR(const char* file) {
     }
   }
 
-=======
->>>>>>> origin/main
   std::snprintf(file_name, sizeof(file_name), "%s", file);
   return 0;
 }
 
-<<<<<<< HEAD
 template <typename WeightType, typename NodeDataType>
 __host__ __device__ bool
 CSRGraph<WeightType, NodeDataType>::valid_node(index_type node) const {
@@ -491,56 +430,3 @@ template struct CSRGraph<float, std::int32_t>;
 template struct CSRGraph<std::int32_t, std::pair<std::int32_t, std::int32_t>>;
 template struct CSRGraph<std::uint32_t, std::pair<std::int32_t, std::int32_t>>;
 template struct CSRGraph<float, std::pair<std::int32_t, std::int32_t>>;
-=======
-template <typename WeightType>
-__host__ __device__ bool
-CSRGraph<WeightType>::valid_node(index_type node) const {
-  return node >= 0 && node < nnodes;
-}
-
-template <typename WeightType>
-__host__ __device__ bool
-CSRGraph<WeightType>::valid_edge(index_type edge) const {
-  return edge >= 0 && edge < nedges;
-}
-
-template <typename WeightType>
-__host__ __device__ typename CSRGraph<WeightType>::index_type
-CSRGraph<WeightType>::getOutDegree(index_type src) const {
-  return row_start[src + 1] - row_start[src];
-}
-
-template <typename WeightType>
-__host__ __device__ typename CSRGraph<WeightType>::index_type
-CSRGraph<WeightType>::getDestination(index_type src, index_type edge) const {
-  return edge_dst[row_start[src] + edge];
-}
-
-template <typename WeightType>
-__host__ __device__ typename CSRGraph<WeightType>::index_type
-CSRGraph<WeightType>::getAbsDestination(index_type edge) const {
-  return edge_dst[edge];
-}
-
-template <typename WeightType>
-__host__ __device__ typename CSRGraph<WeightType>::index_type
-CSRGraph<WeightType>::getFirstEdge(index_type src) const {
-  return row_start[src];
-}
-
-template <typename WeightType>
-__host__ __device__ typename CSRGraph<WeightType>::edge_data_type
-CSRGraph<WeightType>::getWeight(index_type src, index_type edge) const {
-  return edge_data[row_start[src] + edge];
-}
-
-template <typename WeightType>
-__host__ __device__ typename CSRGraph<WeightType>::edge_data_type
-CSRGraph<WeightType>::getAbsWeight(index_type edge) const {
-  return edge_data[edge];
-}
-
-template struct CSRGraph<std::int32_t>;
-template struct CSRGraph<std::uint32_t>;
-template struct CSRGraph<float>;
->>>>>>> origin/main

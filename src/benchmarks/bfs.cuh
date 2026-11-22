@@ -29,7 +29,7 @@ struct BFS {
 	void print_result();
 
   // Write host distances to path as raw uint32 values, one per vertex.
-  Benchmarks::Status write_distances(const char* path);
+  Benchmarks::Status write_results(const char* path);
 
 	// Dealloc on both host and device.
 	Benchmarks::Status dealloc();
@@ -40,8 +40,8 @@ struct BFS {
 	unsigned* h_distances = nullptr; /* host */
 	unsigned* d_distances = nullptr; /* device */
 	bool initialized = false;
-  // Kernel time of the last solve(), measured with cudaEvents.
-  float kernel_ms = 0.0f;
+	// Kernel time of the last solve(), measured with cudaEvents.
+	float kernel_ms = 0.0f;
 };
 
 #include <benchmarks/bfs.cut>

@@ -92,7 +92,7 @@ void BFS<GraphType>::print_result() {
 }
 
 template <typename GraphType>
-Benchmarks::Status BFS<GraphType>::write_distances(const char* path) {
+Benchmarks::Status BFS<GraphType>::write_results(const char* path) {
   FILE* file = fopen(path, "wb");
   if (file == nullptr) {
     std::cerr << "Unable to open output file: " << path << '\n';

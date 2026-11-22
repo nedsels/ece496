@@ -35,6 +35,9 @@ struct A_STAR {
     // Print distances by vertex on host
     void print_result();
 
+    // Write the distance to the destination
+    Benchmarks::Status write_results(const char* path);
+
     // Dealloc on both host and device.
     Benchmarks::Status dealloc();
 
@@ -45,6 +48,8 @@ struct A_STAR {
     weight_type* h_distances = nullptr;  /* Host */
     weight_type* d_distances =  nullptr; /* Device */
     bool initialized = false;
+    // Kernel time of the last solve(), measured with cudaEvents.
+    float kernel_ms = 0.0f;
 };
 
 #include <benchmarks/a_star.cut>

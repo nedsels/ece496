@@ -37,6 +37,9 @@ struct PAGERANK {
     // Print distances by vertex on host
     void print_result();
 
+    // Write ranking of each node
+    Benchmarks::Status write_results(const char* path);
+
     // Dealloc on both host and device.
     Benchmarks::Status dealloc();
 
@@ -49,6 +52,8 @@ struct PAGERANK {
     float damping_factor = 0.0;
     float epsilon = 0.0;
     bool initialized = false;
+    // Kernel time of the last solve(), measured with cudaEvents.
+	float kernel_ms = 0.0f;
 };
 
 #include <benchmarks/pagerank.cut>
