@@ -3,17 +3,17 @@
 #include <benchmarks/benchmarks.cuh>
 
 // Comment out to run non-cooperative warp version
-// #ifndef COOP_VERSION
+#ifndef COOP_VERSION
 // //#define COOP_VERSION
-// #endif
+#endif
 
 template <typename GraphType>
 struct BFS {
 	using index_type = typename GraphType::index_type;
 	using TaskType = Task<index_type, unsigned>;
-// #ifdef COOP_VERSION
-// 	using Vertex = VertexInfo<index_type, unsigned>;
-// #endif
+#ifdef COOP_VERSION
+	using Vertex = VertexInfo<index_type, unsigned>;
+#endif
 
     // Initialize; must be called before any other functions
     // Alloc memory on host and device, and reset distances to
@@ -35,8 +35,8 @@ struct BFS {
 	// Print distances by vertex on host
 	void print_result();
 
-  // Write host distances to path as raw uint32 values, one per vertex.
-  Benchmarks::Status write_results(const char* path);
+	// Write host distances to path as raw uint32 values, one per vertex.
+	Benchmarks::Status write_results(const char* path);
 
 	// Dealloc on both host and device.
 	Benchmarks::Status dealloc();

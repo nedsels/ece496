@@ -19,4 +19,4 @@ struct VertexInfo {
   // Last edge
   Index end_edge;
   Priority priority;
-}
+};

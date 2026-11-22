@@ -1,3 +1,12 @@
+#include <cuda_runtime.h>
+
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <optional>
+
 #include <benchmarks/bfs.cuh>
 #include <benchmarks/sssp.cuh>
 #include <benchmarks/a_star.cuh>
@@ -5,14 +14,6 @@
 #include <graph/csr_graph.cuh>
 #include <scheduler/scheduler.cuh>
 #include <benchmarks/benchmarks.cuh>
-
-#include <chrono>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <cuda_runtime.h>
-#include <iostream>
-#include <optional>
 
 namespace {
 
