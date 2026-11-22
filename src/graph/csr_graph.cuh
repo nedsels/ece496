@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <type_traits>
+<<<<<<< HEAD
 #include <utility>
 
 // WeightType: Data type (int, uint, float) for edge weight
@@ -26,6 +27,14 @@ struct CSRGraph {
   using index_type = std::int32_t;
   using edge_data_type = WeightType;
   using node_data_type = NodeDataType;
+=======
+
+template <typename WeightType>
+struct CSRGraph {
+  using index_type = std::int32_t;
+  using edge_data_type = WeightType;
+  using node_data_type = WeightType;
+>>>>>>> origin/main
 
   CSRGraph();
 
@@ -49,18 +58,27 @@ struct CSRGraph {
   __host__ __device__ edge_data_type getWeight(index_type src,
                                                index_type edge) const;
   __host__ __device__ edge_data_type getAbsWeight(index_type edge) const;
+<<<<<<< HEAD
   __host__ __device__ node_data_type getNodeData(index_type node) const;
+=======
+>>>>>>> origin/main
 
   index_type nnodes;
   index_type nedges;
   index_type* row_start;
   index_type* edge_dst;
+<<<<<<< HEAD
   edge_data_type* edge_data; /* Data stored for each edge i.e. weigth */ 
   node_data_type* node_data; /* Data stored for each node i.e. value or location */
+=======
+  edge_data_type* edge_data;
+  node_data_type* node_data;
+>>>>>>> origin/main
   bool device_graph;
   char file_name[256];
 };
 
+<<<<<<< HEAD
 extern template struct CSRGraph<std::int32_t, std::int32_t>;
 extern template struct CSRGraph<std::uint32_t, std::int32_t>;
 extern template struct CSRGraph<float, std::int32_t>;
@@ -68,3 +86,8 @@ extern template struct CSRGraph<float, std::int32_t>;
 extern template struct CSRGraph<std::int32_t, std::pair<std::int32_t, std::int32_t>>;
 extern template struct CSRGraph<std::uint32_t, std::pair<std::int32_t, std::int32_t>>;
 extern template struct CSRGraph<float, std::pair<std::int32_t, std::int32_t>>;
+=======
+extern template struct CSRGraph<std::int32_t>;
+extern template struct CSRGraph<std::uint32_t>;
+extern template struct CSRGraph<float>;
+>>>>>>> origin/main
