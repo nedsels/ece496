@@ -1,6 +1,16 @@
 #pragma once
 
+#include <cstdio>
+#include <cstdlib>
+
 #define FULL_MASK 0xffffffff
+
+// When nonzero, CUDA_CHECK exits with status 1 on any CUDA error so callers
+// (e.g. the pytest suite) see a failing exit code. Build with
+// -DCUDA_CHECK_EXIT_ON_ERROR=0 to only print the error and keep going.
+#ifndef CUDA_CHECK_EXIT_ON_ERROR
+#define CUDA_CHECK_EXIT_ON_ERROR 1
+#endif
 
 #define CUDA_CHECK(expr_to_check)                                              \
   do {                                                                         \
@@ -8,6 +18,9 @@
     if (result != cudaSuccess) {                                               \
       fprintf(stderr, "CUDA Runtime Error: %s:%i:%d = %s\n", __FILE__,         \
               __LINE__, result, cudaGetErrorString(result));                   \
+      if (CUDA_CHECK_EXIT_ON_ERROR) {                                          \
+        exit(1);                                                               \
+      }                                                                        \
     }                                                                          \
   } while (0)
 
