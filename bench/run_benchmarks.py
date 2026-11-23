@@ -244,8 +244,9 @@ def check_distances(out_path, ref_row, ref_cols):
 
 
 def run_one(binary, benchmark, graph, source, args, out_path, log_path):
-    cmd = [str(binary), benchmark, str(graph.path), str(source),
-           args.weight_type, args.scheduler, "--out", str(out_path), "--time"]
+    # TODO: This command needs to change depending on what benchmark is being run
+    cmd = [str(binary), benchmark, str(graph.path), args.weight_type,
+            args.scheduler, str(source), "--out", str(out_path), "--time"]
     row = {"kernel_ms": "", "load_ms": "", "check": "", "detail": ""}
     start = time.monotonic()
     try:
@@ -416,6 +417,7 @@ def main():
                     for run in range(args.runs):
                         tag = f"{benchmark}_{g.name.replace('/', '_')}_{source}_{run}"
                         out_path = run_dir / f"{tag}.bin"
+                        # TODO: Again, this needs to change depending on the benchmark being run
                         row = run_one(args.bin, benchmark, g, source, args,
                                       out_path, run_dir / "logs" / f"{tag}.log")
                         if not args.keep_output:

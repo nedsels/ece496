@@ -30,20 +30,22 @@ public:
   // Dealloc the scheduler on device.
   unsigned device_dealloc();
 
-  // Push a warp's tasks to the queue. Must be called by all threads in a warp.
+  // Push a warp's tasks to the queue. 
+  // MUST be called by all threads in a warp (syncs across all threads in warp).
   // tasks is a thread-local buffer of num_tasks
   __device__ PushResult push(TaskType* tasks, unsigned num_tasks,
-                             const unsigned thread_id);
+                             const unsigned lane_id);
 
-  // Pop tasks from the queue for a warp's threads to work on. Must be called by
-  // all threads in a warp. dst is a thread-local destination buffer. At most
+  // Pop tasks from the queue for a warp's threads to work on. 
+  // MUST be called by all threads in a warp. 
+  // dst is a thread-local destination buffer. At most
   // one task per thread will be popped, up to warp_max_tasks across the warp.
   // tasks_popped is the number of tasks popped across the warp; when this is
   // <32, we pop into the lowest lanes.
   // TODO: make tasks_popped thread-local (boolean)
   __device__ PopResult pop(TaskType* dst, unsigned* tasks_popped,
                            const unsigned warp_max_tasks,
-                           const unsigned block_id, const unsigned thread_id);
+                           const unsigned block_id, const unsigned lane_id);
 
 private:
   // Common attributes
