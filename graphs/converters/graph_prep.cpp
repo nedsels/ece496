@@ -12,7 +12,9 @@
 //   G.sym.mtx   symmetrized G.mtx       (only if G is directed)
 //   G.sym.ag    PBBS AdjacencyGraph text of the symmetric graph (MBQ MIS)
 //   G.bin       MBQ/Swarm A* binary     (only with --coords)
+//   G.agr       .gr plus node coordinates for ece496 A* (only with --coords)
 //   sources.txt, pairs.txt, reference.txt, info.txt
+//   astar_reference.txt  pair distances on G.agr (only with --coords)
 //
 // Cleaning: self loops are dropped, duplicate edges keep the smallest weight,
 // and each node's edges are sorted by destination. Node ids are kept as in the
@@ -68,6 +70,8 @@ static void usage(const char* prog) {
       "  --coords FILE --coords-format dimacs-co|xyz\n"
       "  --bin-unit-m X           metres per weight unit for G.bin (default "
       "1)\n"
+      "  --agr-unit-m X           metres per weight/coordinate unit for G.agr "
+      "(default 0.1)\n"
       "  --num-sources N          random sources besides the main one "
       "(default 10)\n"
       "  --num-pairs N            random + N farthest pairs (default 10)\n",
@@ -131,8 +135,7 @@ static CSR build_csr(std::uint64_t n, const std::vector<Edge>& e) {
   return g;
 }
 
-static void write_gr(const std::string& path, const CSR& g) {
-  Writer out(path);
+static void write_gr_to(Writer& out, const CSR& g) {
   const std::uint64_t m = g.dst.size();
   const std::uint64_t header[4] = {1, sizeof(std::uint32_t), g.n, m};
   out.raw(header, sizeof(header));
@@ -143,8 +146,15 @@ static void write_gr(const std::string& path, const CSR& g) {
   out.raw(g.w.data(), 4 * m);
 }
 
-// Reads a .gr back and checks it is identical to g.
-static void verify_gr(const std::string& path, const CSR& g) {
+static void write_gr(const std::string& path, const CSR& g) {
+  Writer out(path);
+  write_gr_to(out, g);
+}
+
+// Reads a .gr back and checks it is identical to g. xy is the expected
+// coordinate trailer of a .agr (see write_agr), empty for a plain .gr.
+static void verify_gr(const std::string& path, const CSR& g,
+                      const std::vector<std::int32_t>& xy = {}) {
   std::FILE* f = std::fopen(path.c_str(), "rb");
   if (!f)
     die("cannot reopen " + path);
@@ -156,7 +166,14 @@ static void verify_gr(const std::string& path, const CSR& g) {
   std::vector<std::uint32_t> d(m + (m & 1)), w(m);
   ok = ok && std::fread(off.data(), 8, g.n, f) == g.n &&
        std::fread(d.data(), 4, d.size(), f) == d.size() &&
-       std::fread(w.data(), 4, m, f) == m && std::fgetc(f) == EOF;
+       std::fread(w.data(), 4, m, f) == m;
+  if (!xy.empty()) {
+    std::uint64_t kind = 0;
+    std::vector<std::int32_t> c(xy.size());
+    ok = ok && std::fread(&kind, 8, 1, f) == 1 && kind == 2 &&
+         std::fread(c.data(), 4, c.size(), f) == c.size() && c == xy;
+  }
+  ok = ok && std::fgetc(f) == EOF;
   std::fclose(f);
   ok = ok && std::equal(off.begin(), off.end(), g.off.begin() + 1) &&
        std::equal(g.dst.begin(), g.dst.end(), d.begin()) && w == g.w;
@@ -227,6 +244,21 @@ static void write_ag(const std::string& path, const CSR& g) {
   }
 }
 
+// Length of edge i (leaving u) for A*: the road length (weight * unit_m), but
+// never less than the straight-line distance plus 1 cm.
+static double edge_length_m(const CSR& g, std::uint64_t i, std::uint64_t u,
+                            const std::vector<double>& lat,
+                            const std::vector<double>& lon, double unit_m,
+                            bool* raised = nullptr) {
+  const std::uint32_t v = g.dst[i];
+  const double straight_m =
+      central_angle(lat[u], lon[u], lat[v], lon[v]) * kEarthRadiusM + 0.01;
+  const double len_m = g.w[i] * unit_m;
+  if (raised)
+    *raised = len_m < straight_m;
+  return std::max(len_m, straight_m);
+}
+
 // MBQ/Swarm A* format (mbq/astar/util.h): u32 magic, u32 n, then per node
 // f64 lat, f64 lon (radians), u32 deg, u32 nbr[deg], f64 dist[deg] (radians
 // of arc on a sphere of radius 6371 km). Edge length is the road length
@@ -246,18 +278,94 @@ static std::uint64_t write_bin(const std::string& path, const CSR& g,
     out.bin(static_cast<std::uint32_t>(e - b));
     out.raw(g.dst.data() + b, 4 * (e - b));
     for (std::uint64_t i = b; i < e; ++i) {
-      const std::uint32_t v = g.dst[i];
-      const double straight_m =
-          central_angle(lat[u], lon[u], lat[v], lon[v]) * kEarthRadiusM + 0.01;
-      double len_m = g.w[i] * unit_m;
-      if (len_m < straight_m) {
-        len_m = straight_m;
-        ++clamped;
-      }
+      bool raised;
+      const double len_m = edge_length_m(g, i, u, lat, lon, unit_m, &raised);
+      clamped += raised;
       out.bin(len_m / kEarthRadiusM);
     }
   }
   return clamped;
+}
+
+// Plane coordinates in units of unit_m: (x0, y0, x1, y1, ...). A Lambert
+// conformal conic projection over the graph's latitude range, shrunk so that
+// no point is enlarged; straight lines on the plane are then no longer than
+// on the sphere (apart from rounding).
+static std::vector<std::int32_t> project(const std::vector<double>& lat,
+                                         const std::vector<double>& lon,
+                                         double unit_m) {
+  const auto [lat_lo, lat_hi] = std::minmax_element(lat.begin(), lat.end());
+  const auto [lon_lo, lon_hi] = std::minmax_element(lon.begin(), lon.end());
+  const double lo = *lat_lo, hi = *lat_hi, mid_lon = (*lon_lo + *lon_hi) / 2;
+  const double deg = kPi / 180;
+  if ((lo <= deg && hi >= -deg) || lo < -85 * deg || hi > 85 * deg ||
+      *lon_hi - *lon_lo > kPi)
+    die("cannot project these coordinates: they must stay clear of the "
+        "equator and the poles and span at most 180 degrees of longitude");
+
+  const auto t = [](double a) { return std::tan(kPi / 4 + a / 2); };
+  const double p1 = lo + (hi - lo) / 6, p2 = hi - (hi - lo) / 6;
+  const double cone =
+      p2 - p1 < 1e-6 ? std::sin(p1)
+                     : std::log(std::cos(p1) / std::cos(p2)) /
+                           std::log(t(p2) / t(p1));
+  const double f = std::cos(p1) * std::pow(t(p1), cone) / cone;
+  const auto rho = [&](double a) { return f * std::pow(t(a), -cone); };
+  // The scale factor is convex in latitude, so its maximum is at an end.
+  const auto scale = [&](double a) { return cone * rho(a) / std::cos(a); };
+  const double k = kEarthRadiusM / unit_m / std::max(scale(lo), scale(hi));
+  const double y0 = rho((lo + hi) / 2);
+
+  std::vector<std::int32_t> xy(2 * lat.size());
+  for (std::size_t i = 0; i < lat.size(); ++i) {
+    const double q = rho(lat[i]), a = cone * (lon[i] - mid_lon);
+    const double x = std::round(k * q * std::sin(a));
+    const double y = std::round(k * (y0 - q * std::cos(a)));
+    // Half the int32 range, so differences fit too.
+    if (std::max(std::abs(x), std::abs(y)) > (1 << 30))
+      die("coordinates do not fit in 32 bits; use a larger --agr-unit-m");
+    xy[2 * i] = static_cast<std::int32_t>(x);
+    xy[2 * i + 1] = static_cast<std::int32_t>(y);
+  }
+  return xy;
+}
+
+// ece496 A* graph: a .gr followed by the node data dimacs_to_gr writes for
+// coordinates, u64 kind (= 2) and i32 x, y per node. Weights and coordinates
+// are both in units of agr_unit_m. A weight is the length used in G.bin,
+// rounded to a whole unit but never less than the straight line between the
+// rounded coordinates, so straight-line distance is admissible and consistent.
+static CSR write_agr(const std::string& path, const CSR& g,
+                     const std::vector<double>& lat,
+                     const std::vector<double>& lon, double unit_m,
+                     double agr_unit_m, std::uint64_t& clamped) {
+  const std::vector<std::int32_t> xy = project(lat, lon, agr_unit_m);
+  CSR a = g;
+  clamped = 0;
+  for (std::uint64_t u = 0; u < g.n; ++u)
+    for (std::uint64_t i = g.off[u]; i < g.off[u + 1]; ++i) {
+      const std::uint32_t v = g.dst[i];
+      double w = std::round(edge_length_m(g, i, u, lat, lon, unit_m) /
+                            agr_unit_m);
+      const double dx = static_cast<double>(xy[2 * u]) - xy[2 * v];
+      const double dy = static_cast<double>(xy[2 * u + 1]) - xy[2 * v + 1];
+      const double line = std::ceil(std::sqrt(dx * dx + dy * dy));
+      if (w < line) {
+        w = line;
+        ++clamped;
+      }
+      if (w > std::numeric_limits<std::int32_t>::max())
+        die("edge too long for 32 bits; use a larger --agr-unit-m");
+      a.w[i] = static_cast<std::uint32_t>(std::max(w, 1.0));
+    }
+  {
+    Writer out(path);
+    write_gr_to(out, a);
+    out.bin(std::uint64_t{2});
+    out.raw(xy.data(), 4 * xy.size());
+  }
+  verify_gr(path, a, xy);
+  return a;
 }
 
 static std::vector<std::uint32_t> bfs(const CSR& g, std::uint32_t s) {
@@ -368,7 +476,7 @@ int main(int argc, char** argv) {
   std::uint64_t wmin = 1, wmax = 100, seed = 1, num_sources = 10,
                 num_pairs = 10;
   bool one_based = false;
-  double bin_unit_m = 1.0;
+  double bin_unit_m = 1.0, agr_unit_m = 0.1;
 
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -399,6 +507,8 @@ int main(int argc, char** argv) {
       coords_format = next();
     else if (a == "--bin-unit-m")
       bin_unit_m = std::stod(next());
+    else if (a == "--agr-unit-m")
+      agr_unit_m = std::stod(next());
     else if (a == "--num-sources")
       num_sources = std::stoull(next());
     else if (a == "--num-pairs")
@@ -422,6 +532,8 @@ int main(int argc, char** argv) {
     usage(argv[0]);
   if (weights == "haversine" && coords_path.empty())
     die("--weights haversine needs --coords");
+  if (!(agr_unit_m > 0))
+    die("--agr-unit-m must be positive");
   if (wmin == 0 || wmin > wmax || wmax > 0xFFFFFFFFull)
     die("need 1 <= wmin <= wmax < 2^32");
   const std::string base = out_dir + "/" + name;
@@ -618,12 +730,19 @@ int main(int argc, char** argv) {
   write_ag(base + ".sym.ag", symg);
   std::fprintf(stderr, "wrote %s.sym.ag\n", base.c_str());
 
-  std::uint64_t clamped = 0;
+  std::uint64_t clamped = 0, agr_clamped = 0;
+  CSR ag;
   if (!lat.empty()) {
     clamped = write_bin(base + ".bin", g, lat, lon, bin_unit_m);
     std::fprintf(stderr, "wrote %s.bin (%llu of %llu edges raised to the "
                          "straight-line distance)\n",
                  base.c_str(), (unsigned long long)clamped,
+                 (unsigned long long)m);
+    ag = write_agr(base + ".agr", g, lat, lon, bin_unit_m, agr_unit_m,
+                   agr_clamped);
+    std::fprintf(stderr, "wrote %s.agr (verified; %llu of %llu edges raised "
+                         "to the straight-line distance)\n",
+                 base.c_str(), (unsigned long long)agr_clamped,
                  (unsigned long long)m);
   }
 
@@ -723,6 +842,31 @@ int main(int argc, char** argv) {
       }
   }
 
+  if (!lat.empty()) {
+    // Edge lengths differ from G.gr, so the pair distances do too.
+    Writer af(out_dir + "/astar_reference.txt");
+    af.str(("# Shortest distances on " + name + ".agr, in units of " +
+            std::to_string(agr_unit_m) +
+            " m (same order as pairs.txt)\n# source target dist\n")
+               .c_str());
+    const std::size_t k = random_pairs.size();
+    std::vector<std::uint64_t> answers(2 * k);
+    for (std::size_t i = 0; i < k; ++i) { // both lists share their sources
+      const std::vector<std::uint64_t> dist = dijkstra(ag, random_pairs[i].s);
+      answers[i] = dist[random_pairs[i].t];
+      answers[k + i] = dist[far_pairs[i].t];
+    }
+    for (std::size_t i = 0; i < 2 * k; ++i) {
+      const Pair& p = i < k ? random_pairs[i] : far_pairs[i - k];
+      for (std::uint64_t x :
+           {std::uint64_t{p.s}, std::uint64_t{p.t}, answers[i]}) {
+        af.num(x);
+        af.ch(' ');
+      }
+      af.ch('\n');
+    }
+  }
+
   // ---------------- info ----------------
   Writer info(out_dir + "/info.txt");
   const auto kv = [&](const char* k, const std::string& v) {
@@ -757,10 +901,15 @@ int main(int argc, char** argv) {
                           ? "great-circle metres from coordinates"
                           : "from input");
   kv("weight_range", std::to_string(wlo) + " " + std::to_string(whi));
-  if (!lat.empty())
+  if (!lat.empty()) {
+    kv("agr_unit_m", std::to_string(agr_unit_m));
+    kv("agr_edge_length", "bin_edge_length in agr units, at least the "
+                          "straight line between node coordinates; " +
+                              std::to_string(agr_clamped) + " edges raised");
     kv("bin_edge_length", "max(weight * " + std::to_string(bin_unit_m) +
                               " m, straight line + 1 cm); " +
                               std::to_string(clamped) + " edges raised");
+  }
   kv("main_source", std::to_string(main_src));
   kv("seed", std::to_string(seed));
   return 0;

@@ -20,6 +20,14 @@ It holds the raw downloads and, next to them, one converted folder per graph (`<
 
 The exact command for each is its `case` entry in `graphs/prepare.sh`. You don't need to rerun any of these.
 
+## A\* graphs (`.agr`)
+
+`bin/ece496 a_star` needs node coordinates, so it reads `<name>.agr`: a `.gr` followed by the coordinate trailer `dimacs_to_gr` writes. BFS, SSSP and PageRank reject files with that trailer; use `<name>.gr` for those.
+
+- Weights and coordinates are in the same unit (`--agr-unit-m`, default 0.1 m), and no edge is shorter than the straight line between its ends, so the straight-line heuristic never overestimates. Raw `.co` coordinates are in microdegrees and give wrong paths.
+- Edge lengths differ slightly from `<name>.gr`. Check answers against `astar_reference.txt`, not `reference.txt`.
+- The default unit keeps distances up to 1,600 km below 2^24, where the kernel's 32-bit float priorities are exact.
+
 ## Adding a new graph
 
 Work from your own copy of the repo in `/nfs/ug/groups/capstone_proj_2026F/<you>_workspace/ece496`.
@@ -42,7 +50,7 @@ Work from your own copy of the repo in `/nfs/ug/groups/capstone_proj_2026F/<you>
    ```
    graphs/prepare.sh <name>
    ```
-   Input and output both default to the shared `input_graphs`; set `INPUT_DIR` / `OUTPUT_DIR` to override. The script writes `input_graphs/<name>/` with `<name>.gr`, `.tgr`/`.sgr` (directed graphs only), `.mtx`, `.sym.ag`, `sources.txt`, `pairs.txt`, `reference.txt`, `info.txt` and a `MANIFEST`. Run long conversions inside `tmux` or with `nohup`.
+   Input and output both default to the shared `input_graphs`; set `INPUT_DIR` / `OUTPUT_DIR` to override. The script writes `input_graphs/<name>/` with `<name>.gr`, `.tgr`/`.sgr` (directed graphs only), `.mtx`, `.sym.ag`, `sources.txt`, `pairs.txt`, `reference.txt`, `info.txt` and a `MANIFEST`. Graphs with `--coords` also get `<name>.bin` (MBQ A*), `<name>.agr` (ece496 A*) and `astar_reference.txt`. Run long conversions inside `tmux` or with `nohup`.
 
    **Check `input_graphs/<name>/` doesn't already exist first.** If it does, the run replaces the shared copy everyone else is using.
 6. **Check the output:**
