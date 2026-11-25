@@ -45,3 +45,18 @@ inline __device__ unsigned popc_below(const unsigned m,
                                       const unsigned threshold) {
   return __popc(m & ((1u << threshold) - 1u));
 }
+
+// Load *ptr from L2, bypassing L1. L1 is not coherent across SMs, so a plain
+// load of memory written by another SM can return a stale value.
+template <typename T>
+inline __device__ T load_cg(const T* ptr) {
+  static_assert(sizeof(T) % sizeof(unsigned) == 0,
+                "T must be a whole number of 32-bit words!");
+  T value;
+  const unsigned* src = reinterpret_cast<const unsigned*>(ptr);
+  unsigned* dst = reinterpret_cast<unsigned*>(&value);
+  for (unsigned i = 0; i < sizeof(T) / sizeof(unsigned); i++) {
+    dst[i] = __ldcg(src + i);
+  }
+  return value;
+}
