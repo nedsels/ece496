@@ -38,6 +38,8 @@ public:
 
   // Pop tasks from the queue for a warp's threads to work on. 
   // MUST be called by all threads in a warp. 
+  // Each of the num_warps warps must keep calling pop() until it returns
+  // POP_DONE, and must push any tasks it seeds before its first pop().
   // dst is a thread-local destination buffer. At most
   // one task per thread will be popped, up to warp_max_tasks across the warp.
   // tasks_popped is the number of tasks popped across the warp; when this is
@@ -71,8 +73,9 @@ private:
   unsigned _write_section;
   unsigned _num_full_sections;
   unsigned _num_warps_writing;
-  unsigned _num_empty_sections;
-  unsigned _num_warps_reading;
+  // Queued tasks + warps outside pop(). Every warp starts out counted, so this
+  // only reaches 0 when the queue is empty and no warp can still push.
+  unsigned _outstanding_work;
 };
 
 #include <scheduler/initial_scheduler.cut>

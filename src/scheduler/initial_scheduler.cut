@@ -19,8 +19,7 @@ unsigned InitialScheduler<TaskType>::init(const unsigned byte_capacity,
   _write_section = 0;
   _num_full_sections = 0;
   _num_warps_writing = 0;
-  _num_empty_sections = _num_sections;
-  _num_warps_reading = 0;
+  _outstanding_work = num_warps;
 
   return 1;
 }
@@ -185,10 +184,8 @@ __device__ PushResult InitialScheduler<TaskType>::push(
     // Update global and section metadata
     __syncwarp();
     if (lane_id == 0) {
-      const bool was_empty = old_resv_end == secmd.resv_start;
-      if (was_empty) {
-        atomicSub(&_num_empty_sections, 1);
-      }
+      // Count the tasks before they can be popped
+      atomicAdd(&_outstanding_work, num_writing);
 
       _section_metadata[curr_section_idx] = secmd;
       __threadfence();
@@ -218,9 +215,10 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
     return POP_SUCCESS;
   }
 
-  // Used to detect completion
+  // This warp is idle now: it has finished the tasks from its previous pop(),
+  // and push() already counted the new tasks they created.
   if (lane_id == 0) {
-    atomicAdd(&_num_warps_reading, 1);
+    atomicSub(&_outstanding_work, 1);
   }
 
   // Each block reads from sections block_id + k * _num_blocks, within bounds.
@@ -248,18 +246,18 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
 
     secmd = load_cg(&_section_metadata[read_section]);
 
-    // If section is empty, release it. If all sections are empty and all warps
-    // are reading, there are no more tasks left, so the algorithm has
-    // completed.
+    // If section is empty, release it. If there is no outstanding work, the
+    // algorithm has completed.
     const bool empty = (secmd.resv_start == secmd.resv_end) && !secmd.full;
     if (empty) {
+      // Lane 0 decides, so the whole warp takes the same branch
+      bool done = false;
       if (lane_id == 0) {
         section_busy = atomicExch(&(_section_metadata[read_section].busy), 0);
         assert(section_busy);
+        done = load_cg(&_outstanding_work) == 0;
       }
-      if (_num_empty_sections == _num_sections &&
-          _num_warps_reading == _num_warps) {
-        __syncwarp();
+      if (__shfl_sync(FULL_MASK, done, 0)) {
         return POP_DONE;
       }
       continue;
@@ -295,8 +293,10 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
       atomicSub(&_num_full_sections, 1);
     }
     secmd.full = false;
-    if (secmd.resv_start == secmd.resv_end) {
-      atomicAdd(&_num_empty_sections, 1);
+    // Remove the tasks and count this warp as busy again in one step, so the
+    // count can't reach 0 in between. Nothing to do for a single task.
+    if (*tasks_popped > 1) {
+      atomicSub(&_outstanding_work, *tasks_popped - 1);
     }
 
     _section_metadata[read_section] = secmd;
@@ -305,8 +305,6 @@ __device__ PopResult InitialScheduler<TaskType>::pop(
     const unsigned was_busy =
         atomicExch(&(_section_metadata[read_section].busy), 0);
     assert(was_busy);
-
-    atomicSub(&_num_warps_reading, 1);
   }
 
   __syncwarp();
