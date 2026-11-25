@@ -5,6 +5,11 @@
 
 #define FULL_MASK 0xffffffff
 
+// HYPERPARAMETER
+// New tasks a thread buffers before it calls push(). Kernels push a node's
+// tasks in batches of this size, so any degree fits without device malloc.
+#define TASK_BUFFER_SIZE 32
+
 // When nonzero, CUDA_CHECK exits with status 1 on any CUDA error so callers
 // (e.g. the pytest suite) see a failing exit code. Build with
 // -DCUDA_CHECK_EXIT_ON_ERROR=0 to only print the error and keep going.
