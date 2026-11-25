@@ -8,10 +8,12 @@
 
 #include <cassert>
 #include <climits>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <algorithm>
+#include <utility>
 
 namespace {
 
