@@ -119,7 +119,8 @@ Benchmarks::Status A_STAR<GraphType>::write_results(const char* path) {
   }
   const size_t written = fwrite(&h_distances[dst], sizeof(weight_type), 1, file);
   const bool closed = fclose(file) == 0;
-  if (written != static_cast<size_t>(nnodes) || !closed) {
+  // Only the destination's distance is written
+  if (written != 1 || !closed) {
     std::cerr << "Failed writing output file: " << path << '\n';
     return Benchmarks::Status::ERROR;
   }
@@ -242,8 +243,9 @@ __device__ float h(
     // Euclidean distance
     // Assumes the coordinates are chosen such that the heuristic is admissible (i.e. never overestimates)
     const auto cur_pos = graph.getNodeData(n);
-    const auto dx = std::abs(dest_coord.first - cur_pos.first);
-    const auto dy = std::abs(dest_coord.second - cur_pos.second);
+    // Square as float: int32 overflows once a difference exceeds 46340
+    const float dx = static_cast<float>(dest_coord.first - cur_pos.first);
+    const float dy = static_cast<float>(dest_coord.second - cur_pos.second);
     return sqrtf(dx * dx + dy * dy);
 }
 
