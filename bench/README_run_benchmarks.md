@@ -2,14 +2,16 @@
 
 From the repo root:
 
-```bash
-# 1. Tell the script where your graphs are (folder holding <name>/<name>.gr)
-export GRAPH_DIR="/nfs/ug/groups/capstone_proj_2026F/input_graphs"
+The group's big graphs in `/nfs/ug/groups/capstone_proj_2026F/input_graphs`
+are searched automatically on the UG machines, along with `graphs/inputs/`.
+For graphs anywhere else, pass `--graph-dir DIR` or set `GRAPH_DIR`
+(`setenv GRAPH_DIR /some/dir` in csh).
 
-# 2. See which graphs it found
+```csh
+# 1. See which graphs it found
 bench/run_benchmarks.py --list
 
-# 3. Run everything (builds bin/ece496 first)
+# 2. Run everything (builds bin/ece496 first)
 bench/run_benchmarks.py
 
 # Or run a subset
@@ -43,14 +45,53 @@ nothing to check against.
 
 On JamesPC (3080 Ti), `sssp` on `usa-road-d` takes about 80 s per run.
 
+## Galois CPU baseline (`run_galois.py`)
+
+`bench/run_galois.py` runs Galois's Lonestar CPU apps (`bfs-cpu`,
+`sssp-cpu`) on the same graphs, with the same options (`-g`, `-b`,
+`--sources`, `--runs`, `--list`, ...), and writes the same CSV with
+`scheduler=galois-cpu` to `bench/results/galois-cpu_<time>/`.
+
+Galois needs Boost, LLVM (with RTTI) and fmt. On the UG machines LLVM and
+Boost are installed already, and fmt is in the group folder, so set this
+first (put it in `~/.cshrc` to keep it):
+
+```csh
+setenv CMAKE_PREFIX_PATH /nfs/ug/groups/capstone_proj_2026F/local
+git submodule update --init Galois
+
+python3 bench/run_galois.py --list
+python3 bench/run_galois.py -g germany-osm -b bfs sssp --runs 3
+```
+
+The first run configures `build-galois/` and builds only `bfs-cpu` and
+`sssp-cpu`. Use `--no-build` after that.
+
+| Option | Meaning | Default |
+|---|---|---|
+| `--threads N` | Galois threads | all cores |
+| `--sssp-algo` | `sssp-cpu -algo` (`deltaStep`, `dijkstra`, ...) | Lonestar's auto |
+| `--delta N` | `sssp-cpu -delta` (log2 bucket width) | 13 |
+| `--bfs-algo` | `bfs-cpu -algo` | Lonestar's |
+| `--galois-build` | build directory | `build-galois/` or `$GALOIS_BUILD` |
+
+- `kernel_ms` is Lonestar's `Timer_0`: the algorithm only, in whole
+  milliseconds. Graph loading and verification aren't included.
+- A run only counts as `ok` if Lonestar prints `Verification successful.`.
+  Its reached/max/sum are also checked against `reference.txt` when the
+  graph has one, and a failed check blanks the time.
+- SSSP needs non-negative integer weights. Graphs without 4-byte weights are
+  skipped (`skip sssp on <graph>: ...`), as are `.agr`-only graphs.
+- Other machines may share the UG CPU, so check `uptime` before timing.
+
 ## Running the executable directly
 
 For tools that launch the program themselves (Nsight, gdb, perf, ...):
 
-```bash
+```csh
 cmake -S . -B build && cmake --build build -j
 
-export GRAPH_DIR="/nfs/ug/groups/capstone_proj_2026F/input_graphs"
+setenv GRAPH_DIR /nfs/ug/groups/capstone_proj_2026F/input_graphs
 
 # bin/ece496 bfs|sssp <graph.gr>  <weight-type> <scheduler> <source>               [--out FILE] [--time]
 # bin/ece496 a_star   <graph.agr> <weight-type> <scheduler> <source> <destination> [--out FILE] [--time]

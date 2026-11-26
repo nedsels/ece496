@@ -10,6 +10,12 @@ All values are little-endian:
     u64 row_end[nnodes]      end offset of each vertex's edges (no leading 0)
     u32 dst[nedges]          plus one u32 of padding when nedges is odd
     weight[nedges]           only when weight_size != 0
+    optional node data, used by A* for its heuristic:
+      u64 kind               1 = one i32 per node, 2 = (x, y) i32 pair per node
+      i32 values[nnodes] or i32 xy[nnodes][2]
+
+The node data must match what the benchmark reads: A* needs kind 2, and
+bfs/sssp/pr (which read kind 1) refuse a file with kind 2.
 
 Graphs are scipy.sparse.csr_matrix objects, where entry (u, v) is the weight
 of the directed edge u -> v. Matrices are built straight from their
@@ -36,12 +42,21 @@ WEIGHT_DTYPES = {
 }
 
 
-def write_gr(path, matrix, weighted=True):
+NODE_DATA_XY = 2  # node-data kind for (x, y) coordinates
+
+
+def write_gr(path, matrix, weighted=True, coords=None):
     """Write a square sparse matrix to `path` in .gr format.
 
     With weighted=False the file has weight_size 0 and matrix values are
     ignored. Otherwise matrix.data must be int32, uint32 or float32.
+    coords, an (nnodes, 2) integer array, is appended as A*'s node data.
     """
+    if coords is not None:
+        coords = np.asarray(coords)
+        if coords.shape != (matrix.shape[0], 2):
+            raise ValueError(f"coords must be ({matrix.shape[0]}, 2), "
+                             f"got {coords.shape}")
     m = sp.csr_matrix(matrix)
     nnodes, ncols = m.shape
     if nnodes != ncols:
@@ -73,6 +88,29 @@ def write_gr(path, matrix, weighted=True):
         f.write(dst.tobytes())
         if weighted:
             f.write(np.asarray(m.data[:nedges], dtype=weight_dtype).tobytes())
+        if coords is not None:
+            f.write(np.array([NODE_DATA_XY], dtype=HEADER_DTYPE).tobytes())
+            f.write(np.asarray(coords, dtype="<i4").tobytes())
+
+
+def read_coords(path):
+    """The (nnodes, 2) int32 coordinates stored after the edges, or None if
+    the file has no node data. Raises ValueError for other node data."""
+    raw = Path(path).read_bytes()
+    _, weight_size, nnodes, nedges = (
+        int(x) for x in np.frombuffer(raw, dtype=HEADER_DTYPE, count=4))
+    end = (4 * HEADER_DTYPE.itemsize + nnodes * ROW_END_DTYPE.itemsize
+           + (nedges + (nedges & 1)) * DST_DTYPE.itemsize
+           + nedges * weight_size)
+    if len(raw) == end:
+        return None
+    kind = int(np.frombuffer(raw, dtype=HEADER_DTYPE, count=1, offset=end)[0])
+    if kind != NODE_DATA_XY:
+        raise ValueError(f"node data kind {kind}, expected {NODE_DATA_XY}")
+    if len(raw) < end + 8 + nnodes * 8:
+        raise ValueError("node data is truncated")
+    return np.frombuffer(raw, dtype="<i4", count=2 * nnodes,
+                         offset=end + 8).reshape(nnodes, 2).copy()
 
 
 def read_gr(path, weight_type="int32"):
@@ -211,3 +249,61 @@ def make_graph(name, seed=0, max_weight=1):
 
 GRAPH_NAMES = ["chain", "star", "grid", "random", "disconnected",
                "single_vertex"]
+
+
+# ---------------------------------------------------------------------------
+# Geometric graphs for A*: each returns (matrix, coords). Every edge weight is
+# at least the Euclidean distance between its endpoints, so A*'s straight-line
+# heuristic never overestimates and A* must find the true shortest distance.
+# ---------------------------------------------------------------------------
+
+def _geometric(coords, src, dst, rng, max_extra):
+    """Edges src -> dst weighted ceil(distance) + a random extra in
+    [0, max_extra]. Self-loops and duplicates are dropped."""
+    src = np.asarray(src, dtype=np.int64)
+    dst = np.asarray(dst, dtype=np.int64)
+    keep = src != dst
+    pairs = np.unique(np.stack([src[keep], dst[keep]], axis=1), axis=0)
+    dist = np.hypot(*(coords[pairs[:, 0]] - coords[pairs[:, 1]]).T)
+    weights = (np.ceil(dist).astype(np.int32)
+               + rng.integers(0, max_extra + 1, size=len(pairs),
+                              dtype=np.int32))
+    n = len(coords)
+    m = sp.csr_matrix((weights, (pairs[:, 0], pairs[:, 1])), shape=(n, n))
+    m.sort_indices()
+    return m
+
+
+def geo_grid(w, h, seed=0, spacing=10, max_extra=10):
+    """w x h 4-neighbour grid, both directions, vertices `spacing` apart."""
+    rng = np.random.default_rng(seed)
+    ys, xs = np.divmod(np.arange(w * h), w)
+    coords = np.stack([xs, ys], axis=1).astype(np.int32) * spacing
+    ids = np.arange(w * h).reshape(h, w)
+    src = np.concatenate([ids[:, :-1].ravel(), ids[:-1, :].ravel()])
+    dst = np.concatenate([ids[:, 1:].ravel(), ids[1:, :].ravel()])
+    return _geometric(coords, *_undirected(src, dst), rng, max_extra), coords
+
+
+def geo_random(n, k, seed=0, size=1000, max_extra=20):
+    """n random points in a size x size square, each with directed edges to
+    its k nearest neighbours (like a road network: local edges only)."""
+    rng = np.random.default_rng(seed)
+    coords = rng.integers(0, size, size=(n, 2), dtype=np.int32)
+    d2 = ((coords[:, None, :].astype(np.int64) - coords[None, :, :]) ** 2).sum(-1)
+    np.fill_diagonal(d2, np.iinfo(np.int64).max)
+    nearest = np.argsort(d2, axis=1, kind="stable")[:, :k]
+    src = np.repeat(np.arange(n), k)
+    return _geometric(coords, src, nearest.ravel(), rng, max_extra), coords
+
+
+def make_geo_graph(name, seed=0):
+    """Small default-sized geometric graph by name: (matrix, coords)."""
+    if name == "geo_grid":
+        return geo_grid(20, 15, seed)
+    if name == "geo_random":
+        return geo_random(300, 4, seed)
+    raise ValueError(f"unknown geometric graph: {name}")
+
+
+GEO_GRAPH_NAMES = ["geo_grid", "geo_random"]
