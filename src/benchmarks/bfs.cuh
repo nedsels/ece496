@@ -1,10 +1,15 @@
 #pragma once
 #include <common/task.h>
+#include <common/shared_mem.cuh>
 #include <benchmarks/benchmarks.cuh>
 
 // Comment out to run non-cooperative warp version
 #ifndef COOP_VERSION
-// //#define COOP_VERSION
+#define COOP_VERSION
+#endif
+
+#ifdef COOP_VERSION
+static constexpr size_t CAP = 256;
 #endif
 
 template <typename GraphType>
@@ -13,6 +18,7 @@ struct BFS {
 	using TaskType = Task<index_type, unsigned>;
 #ifdef COOP_VERSION
 	using Vertex = VertexInfo<index_type, unsigned>;
+	using SMem = WarpSMem<CAP, TaskType, Vertex>;
 #endif
 
     // Initialize; must be called before any other functions
