@@ -164,34 +164,38 @@ static __global__ void page_rank_kernel(
     using task_type = typename PAGERANK<GraphType>::TaskType;
     using index_type = typename GraphType::index_type;
 
+    task_type new_tasks[TASK_BUFFER_SIZE];
+
     // Seed scheduler with all nodes
     {
         const index_type nnodes = graph.nnodes;
-        task_type* initial_tasks = nullptr;
-        size_t num_tasks = 0;
-        if (thread_id < nnodes) {
-            // round up
-            initial_tasks = (task_type*)malloc(((nnodes + total_threads - 1) / total_threads) * sizeof(task_type));
-            // Round robin
-            for (index_type idx = thread_id; idx < nnodes; idx += total_threads) {
-                initial_tasks[num_tasks++] = {idx, 0};
+        // Round robin
+        index_type idx = thread_id;
+        do {
+            unsigned num_tasks = 0;
+            for (; idx < nnodes && num_tasks < TASK_BUFFER_SIZE; idx += total_threads) {
+                new_tasks[num_tasks++] = {idx, 0};
             }
-        }
-        scheduler->push(initial_tasks, num_tasks, lane_id);
-        free(initial_tasks);
-        initial_tasks = nullptr;
+            if (scheduler->push(new_tasks, num_tasks, lane_id) == PUSH_DEADLOCK) {
+                printf("Deadlock\n");
+                __trap();
+            }
+        } while (__any_sync(FULL_MASK, idx < nnodes));
     }
 
     task_type task;
     unsigned tasks_read;
     // If there are tasks left, we are not done this iteration yet
     while (scheduler->pop(&task, &tasks_read, warpSize, blockIdx.x, lane_id) != POP_DONE) {
-        task_type* new_tasks = nullptr;
-        unsigned num_new_tasks = 0;
+        index_type v = 0;
+        float shared_residual = 0.0f;
+        // Edges [e_rel, e_end) of v are left to relax
+        index_type e_rel = 0;
+        index_type e_end = 0;
         // pop() writes to the lowest lanes
         if (lane_id < tasks_read) {
             // Iteration based guarantees one task per node
-            index_type v = task.item;
+            v = task.item;
             const float residual = atomicExch(&residuals[v], 0.0f);
             atomicAdd(&ranks[v], residual);
             const index_type degree = graph.getOutDegree(v);
@@ -201,32 +205,29 @@ static __global__ void page_rank_kernel(
             // Danling vertices should uniformly distribute residual across all other vertices
             // For large graphs, dangling vertices shouldn't impact rank by much
             if (degree > 0 && residual > 0.0f) {
-                const float shared_residual = damping * residual / static_cast<float>(degree);
-                new_tasks = (task_type*)malloc(degree * sizeof(task_type));
-                if (new_tasks == nullptr) {
-					// Device heap exhausted; abort the kernel so the host sees an error
-					// instead of silently dropping tasks.
-					printf("pr kernel: device malloc of %u tasks failed\n", (unsigned)degree);
-					__trap();
-				}
-                for (index_type e_rel = 0; e_rel < degree; e_rel++) {
-                    index_type nbr = graph.getDestination(v, e_rel);
-                    // Update neighbour's residual
-                    const float old = atomicAdd(&residuals[nbr], shared_residual);
-                    // Only create new task if change is above threshold
-                    if (old < eps && old + shared_residual >= eps) {
-                        new_tasks[num_new_tasks++] = {nbr, 0};
-                    }
-                }
+                shared_residual = damping * residual / static_cast<float>(degree);
+                e_end = degree;
             }
         }
-        // Push synchronizes so all threads synced after this call
-        if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
-            printf("Deadlock\n");
-            assert(false);
-        }
-        if (new_tasks != nullptr) {
-            free(new_tasks);
-        }
+        // Propagate and push until every lane is out of edges
+        do {
+            unsigned num_new_tasks = 0;
+            for (; e_rel < e_end && num_new_tasks < TASK_BUFFER_SIZE; e_rel++) {
+                index_type nbr = graph.getDestination(v, e_rel);
+                // Update neighbour's residual
+                const float old = atomicAdd(&residuals[nbr], shared_residual);
+                // Only create new task if change is above threshold
+                if (old < eps && old + shared_residual >= eps) {
+                    new_tasks[num_new_tasks++] = {nbr, 0};
+                }
+            }
+            // Push synchronizes so all threads synced after this call
+            if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
+                // Abort the kernel so the host sees an error instead of silently
+                // dropping tasks.
+                printf("Deadlock\n");
+                __trap();
+            }
+        } while (__any_sync(FULL_MASK, e_rel < e_end));
     }
 }

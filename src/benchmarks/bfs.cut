@@ -168,43 +168,46 @@ static __global__ void bfs_kernel(
 		atomicExch(&(dist[source]), 0);
 		num_tasks = 1;
 	}
-	scheduler->push(&source_task, num_tasks, lane_id);
+	if (scheduler->push(&source_task, num_tasks, lane_id) == PUSH_DEADLOCK) {
+		printf("Deadlock\n");
+		__trap();
+	}
 
+	task_type new_tasks[TASK_BUFFER_SIZE];
 	task_type task;
 	unsigned tasks_read;
 	while (scheduler->pop(&task, &tasks_read, warpSize, blockIdx.x, lane_id) != POP_DONE) {
-		task_type* new_tasks = nullptr;
-		unsigned num_new_tasks = 0;
+		index_type v = 0;
+		unsigned curr_dist = 0;
+		// Edges [e_rel, e_end) of v are left to relax
+		index_type e_rel = 0;
+		index_type e_end = 0;
 		// pop() writes to the lowest lanes
 		if (lane_id < tasks_read) {
-			index_type v = task.item;
-			unsigned prev_dist = task.priority;
-			unsigned curr_dist = dist[v];
-			index_type degree = graph.getOutDegree(v);
-			if (curr_dist == prev_dist && degree > 0) {
-				new_tasks = (task_type*)malloc(degree * sizeof(task_type));
-				if (new_tasks == nullptr) {
-					// Device heap exhausted; abort the kernel so the host sees an error
-					// instead of silently dropping tasks.
-					printf("bfs_kernel: device malloc of %u tasks failed\n", (unsigned)degree);
-					__trap();
-				}
-				for (index_type e_rel = 0; e_rel < degree; e_rel++) {
-					index_type nbr = graph.getDestination(v, e_rel);
-					unsigned new_dist = curr_dist + 1;
-					if (atomicMin(dist + nbr, new_dist) > new_dist) {
-						new_tasks[num_new_tasks++] = {nbr, new_dist};
-					}
-				}
+			v = task.item;
+			const unsigned prev_dist = task.priority;
+			curr_dist = load_cg(dist + v);
+			if (curr_dist == prev_dist) {
+				e_end = graph.getOutDegree(v);
 			}
 		}
-		if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
-			printf("Deadlock\n");
-			assert(false);
-		}
-		if (new_tasks != nullptr) {
-			free(new_tasks);
-		}
+		// Relax and push until every lane is out of edges
+		do {
+			unsigned num_new_tasks = 0;
+			for (; e_rel < e_end && num_new_tasks < TASK_BUFFER_SIZE; e_rel++) {
+				index_type nbr = graph.getDestination(v, e_rel);
+				unsigned new_dist = curr_dist + 1;
+				if (atomicMin(dist + nbr, new_dist) > new_dist) {
+					new_tasks[num_new_tasks++] = {nbr, new_dist};
+				}
+			}
+			if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
+				// Abort the kernel so the host sees an error instead of silently
+				// dropping tasks.
+				printf("Deadlock\n");
+				__trap();
+			}
+		} while (__any_sync(FULL_MASK, e_rel < e_end));
 	}
 }
 #endif

@@ -3,22 +3,31 @@
 
 Builds bin/ece496, runs every (benchmark, graph, source) combination with the
 given scheduler (selected at runtime by the binary's <scheduler> argument),
-checks the answers against each graph's reference.txt when there is one, and
-writes a CSV.
+checks the answers, and writes a CSV.
+
+  bfs, sssp   one run per source; checked against reference.txt
+  a_star      one run per (source, target) pair on the graph file with node
+              coordinates (<name>.agr, or a .gr with coordinates); checked
+              against astar_reference.txt
+  pr          one run per graph; ranks checked against the graph (needs numpy)
 
 Examples (from the repo root):
   bench/run_benchmarks.py --list                     # graphs found, and why some are skipped
   bench/run_benchmarks.py                            # every benchmark on every graph that fits
   bench/run_benchmarks.py -g germany-osm livejournal -b bfs --runs 5
   GRAPH_DIR="/path/to/processed_graphs" bench/run_benchmarks.py -b bfs sssp
+  bench/run_benchmarks.py -g germany-osm -b a_star --sources 5       # first 5 pairs
+  bench/run_benchmarks.py -g germany-osm -b a_star --source 4665057 --dest 436940
 
 Graphs are looked up in graphs/inputs/ plus every --graph-dir (or $GRAPH_DIR,
 separated by ':'). Both layouts are found:
   <dir>/<name>.gr                 flat file, named <name>
+  <dir>/<name>.agr                the same graph with coordinates, for a_star
   <dir>/<name>/<anything>.gr      prepared folder (bench.sh / graph_prep), named
                                   after the folder when it has info.txt or
-                                  reference.txt; its sources.txt and
-                                  reference.txt are used for sources and checks
+                                  reference.txt; its sources.txt, pairs.txt,
+                                  reference.txt and astar_reference.txt are
+                                  used for inputs and checks
 """
 
 import argparse
@@ -33,7 +42,13 @@ import time
 from array import array
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
+
+try:
+    import numpy as np  # only needed to check PageRank
+except ImportError:
+    np = None
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = REPO_ROOT / "build"
@@ -42,45 +57,94 @@ DEFAULT_GRAPH_DIRS = [REPO_ROOT / "graphs" / "inputs"]
 DEFAULT_RESULTS_DIR = REPO_ROOT / "bench" / "results"
 
 INT32_MAX = 2**31 - 1  # CSRGraph::index_type is int32_t
-UNREACHED = 0xFFFFFFFF
+# What the binary writes for an unreachable vertex: BFS levels are always
+# uint32, the others use the largest value of the weight type.
+UNREACHED = {"int32": INT32_MAX, "uint32": 0xFFFFFFFF}
 
-# Benchmarks this script knows about. "ref_cols" are the reference.txt columns
-# (reached, max, sum) that the --out distances are checked against; None means
-# no check. Benchmarks the binary doesn't implement yet are reported and
-# skipped, so adding one to main.cu is enough for it to start running here.
+# Benchmarks this script knows about. "inputs" says what one run needs (see
+# make_jobs) and "ref_cols" are the reference.txt columns (reached, max, sum)
+# that --out distances are checked against. Benchmarks the binary doesn't
+# implement yet are reported and skipped, so a source-based one only has to be
+# added to main.cu to start running here.
 BENCHMARKS = {
-    "bfs": {"ref_cols": (1, 2, 3)},
-    "sssp": {"ref_cols": (4, 5, 6)},
-    "pagerank": {"ref_cols": None},
-    "cc": {"ref_cols": None},
-    "mis": {"ref_cols": None},
+    "bfs": {"inputs": "source", "ref_cols": (1, 2, 3)},
+    "sssp": {"inputs": "source", "ref_cols": (4, 5, 6)},
+    "a_star": {"inputs": "pair"},
+    "pr": {"inputs": "pagerank"},
+    "cc": {"inputs": "source"},
+    "mis": {"inputs": "source"},
 }
+ALIASES = {"astar": "a_star", "pagerank": "pr"}
 
-CSV_FIELDS = ["scheduler", "benchmark", "graph", "source", "run", "status",
-              "kernel_ms", "load_ms", "wall_s", "check", "detail"]
+CSV_FIELDS = ["scheduler", "benchmark", "graph", "source", "target", "params",
+              "run", "status", "kernel_ms", "load_ms", "wall_s", "check",
+              "detail"]
+
+
+@dataclass
+class GraphFile:
+    path: Path
+    nodes: int = 0
+    edges: int = 0
+    weight_size: int = 0
+    has_coords: bool = False  # needed by a_star, rejected by the others
+    error: str = ""
 
 
 @dataclass
 class Graph:
     name: str
-    path: Path
-    nodes: int = 0
-    edges: int = 0
-    weight_size: int = 0
+    plain: GraphFile = None   # without coordinates
+    coords: GraphFile = None  # with coordinates
     sources: list = field(default_factory=list)
+    pairs: list = field(default_factory=list)      # [(source, target)]
     reference: dict = field(default_factory=dict)  # source -> list of ints
-    skip_reason: str = ""
+    astar_reference: dict = field(default_factory=dict)  # (s, t) -> distance
+
+    def file_for(self, benchmark):
+        pair = BENCHMARKS.get(benchmark, {}).get("inputs") == "pair"
+        return self.coords if pair else self.plain
+
+
+@dataclass
+class Job:
+    """One configuration to run: its arguments and how to check its output."""
+    benchmark: str
+    graph: Graph
+    cli_args: list        # arguments after <scheduler>
+    tag: str
+    source: object = ""   # columns in the CSV
+    target: object = ""
+    params: str = ""
+    check: object = None  # out_path -> (check, detail), None for no check
 
 
 # ---------------------------------------------------------------- graphs
 
-def read_gr_header(path):
-    """(version, weight_size, nodes, edges) from a Galois .gr v1 header."""
-    with open(path, "rb") as f:
-        header = f.read(32)
-    if len(header) < 32:
-        raise ValueError("file shorter than the .gr header")
-    return struct.unpack("<4Q", header)
+def read_gr_info(path):
+    """Header of a Galois .gr v1 file, and whether it has the coordinate
+    trailer (u64 kind == 2 after the weights, see CSRGraph::readFromGR)."""
+    info = GraphFile(path)
+    try:
+        with open(path, "rb") as f:
+            header = f.read(32)
+            if len(header) < 32:
+                info.error = "file shorter than the .gr header"
+                return info
+            version, info.weight_size, info.nodes, info.edges = struct.unpack(
+                "<4Q", header)
+            if version != 1:
+                info.error = f".gr version {version}, expected 1"
+                return info
+            f.seek(32 + info.nodes * 8
+                   + (info.edges + (info.edges & 1)) * 4
+                   + info.edges * info.weight_size)
+            kind = f.read(8)
+            info.has_coords = (len(kind) == 8
+                               and struct.unpack("<Q", kind)[0] == 2)
+    except OSError as e:
+        info.error = f"unreadable: {e}"
+    return info
 
 
 def read_ints_file(path):
@@ -94,56 +158,78 @@ def read_ints_file(path):
     return rows
 
 
-def load_graph(name, path, meta_dir=None):
-    g = Graph(name, path)
-    try:
-        version, g.weight_size, g.nodes, g.edges = read_gr_header(path)
-    except (OSError, ValueError) as e:
-        g.skip_reason = f"unreadable header: {e}"
-        return g
-    if version != 1:
-        g.skip_reason = f".gr version {version}, expected 1"
+def load_graph(name, paths, meta_dir=None):
+    """A graph from its .gr and/or .agr file."""
+    g = Graph(name)
+    for path in paths:
+        info = read_gr_info(path)
+        if info.has_coords or path.suffix == ".agr":
+            g.coords = g.coords or info
+        else:
+            g.plain = g.plain or info
     if meta_dir is not None:
         if (meta_dir / "sources.txt").is_file():
             g.sources = [row[0] for row in
                          read_ints_file(meta_dir / "sources.txt")]
+        if (meta_dir / "pairs.txt").is_file():
+            g.pairs = [tuple(row[:2]) for row in
+                       read_ints_file(meta_dir / "pairs.txt")]
         if (meta_dir / "reference.txt").is_file():
             # The pairs section repeats sources with other columns; keep only
             # the per-source rows, which come first.
             for row in read_ints_file(meta_dir / "reference.txt"):
                 if len(row) >= 7:
                     g.reference.setdefault(row[0], row)
+        if (meta_dir / "astar_reference.txt").is_file():
+            for row in read_ints_file(meta_dir / "astar_reference.txt"):
+                g.astar_reference[(row[0], row[1])] = row[2]
+            if not g.pairs:
+                g.pairs = list(g.astar_reference)
     if not g.sources:
         g.sources = [0]
     return g
 
 
+def graph_files(d):
+    """{stem: [.gr and .agr files with that stem]} in a folder."""
+    stems = {}
+    for f in sorted(d.glob("*.gr")) + sorted(d.glob("*.agr")):
+        stems.setdefault(f.stem, []).append(f)
+    return stems
+
+
 def discover_graphs(dirs):
     graphs = {}
+    seen = set()
 
-    def add(g):
-        if g.name in graphs:
-            print(f"warning: {g.path} has the same name as "
-                  f"{graphs[g.name].path}; keeping the first", file=sys.stderr)
+    def add(name, paths, meta_dir=None):
+        paths = [f for f in paths if f.resolve() not in seen]
+        if not paths:
+            return
+        seen.update(f.resolve() for f in paths)
+        if name in graphs:
+            kept = graphs[name].plain or graphs[name].coords
+            print(f"warning: {paths[0]} has the same name as {kept.path}; "
+                  "keeping the first", file=sys.stderr)
         else:
-            graphs[g.name] = g
+            graphs[name] = load_graph(name, paths, meta_dir)
 
     for d in dirs:
         if not d.is_dir():
             print(f"warning: graph dir {d} not found", file=sys.stderr)
             continue
-        for f in sorted(d.glob("*.gr")):
-            add(load_graph(f.stem, f))
+        for stem, files in graph_files(d).items():
+            add(stem, files)
         for sub in sorted(p for p in d.iterdir() if p.is_dir()):
-            grs = sorted(sub.glob("*.gr"))
+            stems = graph_files(sub)
             prepared = ((sub / "info.txt").is_file()
                         or (sub / "reference.txt").is_file())
-            for f in grs:
+            for stem, files in stems.items():
                 if prepared:
-                    name = sub.name if len(grs) == 1 else f"{sub.name}/{f.stem}"
-                    add(load_graph(name, f, meta_dir=sub))
+                    name = sub.name if len(stems) == 1 else f"{sub.name}/{stem}"
+                    add(name, files, meta_dir=sub)
                 else:
-                    add(load_graph(f.stem, f))
+                    add(stem, files)
     return graphs
 
 
@@ -172,32 +258,41 @@ def gib(n):
     return f"{n / 2**30:.1f} GiB"
 
 
-def check_fits(g, host_free, gpu_free):
-    """Set g.skip_reason if the graph can't run with the current binary.
+def skip_reason(g, benchmark, host_free, gpu_free, ignore_size=False):
+    """Why this graph can't run this benchmark with the current binary, or "".
 
     Estimates mirror CSRGraph::readFromGR (reads the whole file, then builds
     int32 CSR arrays) and main.cu (scheduler takes 1/8 of free VRAM after the
-    graph and distances are on the device).
+    graph and working arrays are on the device).
     """
-    if g.skip_reason:
-        return
-    if g.nodes > INT32_MAX or g.edges > INT32_MAX:
-        g.skip_reason = (f"{g.nodes:,} nodes / {g.edges:,} edges exceed the "
-                         "int32 index_type")
-        return
-    if g.weight_size not in (0, 4):
-        g.skip_reason = f"{g.weight_size}-byte weights; binary expects 4"
-        return
-    csr = (g.nodes + 1) * 4 + g.edges * 4 + g.edges * 4
-    host_need = g.path.stat().st_size + csr
+    f = g.file_for(benchmark)
+    if f is None:
+        if g.plain is not None:
+            return "no file with node coordinates (.agr)"
+        return "only has a file with node coordinates"
+    if f.error:
+        return f.error
+    if f.has_coords != (f is g.coords):
+        return "no node coordinates in the .agr file"
+    if f.nodes > INT32_MAX or f.edges > INT32_MAX:
+        return (f"{f.nodes:,} nodes / {f.edges:,} edges exceed the int32 "
+                "index_type")
+    if f.weight_size not in (0, 4):
+        return f"{f.weight_size}-byte weights; binary expects 4"
+    if ignore_size:
+        return ""
+    # row starts, node data, destinations, weights
+    csr = ((f.nodes + 1) * 4 + f.nodes * (8 if f.has_coords else 4)
+           + f.edges * 4 + f.edges * 4)
+    host_need = f.path.stat().st_size + csr
     if host_free is not None and host_need > host_free:
-        g.skip_reason = (f"needs ~{gib(host_need)} host RAM, "
-                         f"{gib(host_free)} available")
-        return
-    gpu_need = (csr + g.nodes * 4) * 8 // 7
+        return f"needs ~{gib(host_need)} host RAM, {gib(host_free)} available"
+    # One 4-byte value per node; PageRank keeps ranks and residuals.
+    values = f.nodes * (8 if benchmark == "pr" else 4)
+    gpu_need = (csr + values) * 8 // 7
     if gpu_free is not None and gpu_need > gpu_free:
-        g.skip_reason = (f"needs ~{gib(gpu_need)} VRAM, "
-                         f"{gib(gpu_free)} free")
+        return f"needs ~{gib(gpu_need)} VRAM, {gib(gpu_free)} free"
+    return ""
 
 
 # ---------------------------------------------------------------- build/run
@@ -217,36 +312,166 @@ def binary_supports(binary, benchmark, scheduler, weight_type):
     """main.cu rejects unknown benchmarks before loading the graph, so a run
     on a missing file tells us whether the benchmark is implemented."""
     proc = subprocess.run(
-        [str(binary), benchmark, "/nonexistent.gr", "0", weight_type,
-         scheduler], capture_output=True, text=True, timeout=60)
+        [str(binary), benchmark, "/nonexistent.gr", weight_type, scheduler,
+         "0", "1"], capture_output=True, text=True, timeout=60)
     if "Unknown scheduler" in proc.stderr:
         raise RuntimeError(f"{binary.name} rejected scheduler {scheduler!r}")
+    if "Unsupported weight type" in proc.stderr:
+        raise RuntimeError(f"{binary.name} rejected weight type "
+                           f"{weight_type!r}")
     return "Unsupported benchmark" not in proc.stderr
 
 
-def check_distances(out_path, ref_row, ref_cols):
-    """Compare reached / max / sum of the uint32 distances to reference.txt."""
-    dist = array("I")
-    with open(out_path, "rb") as f:
-        dist.frombytes(f.read())
+def read_u32(path):
+    values = array("I")
+    with open(path, "rb") as f:
+        values.frombytes(f.read())
     if sys.byteorder != "little":
-        dist.byteswap()
-    unreached = dist.count(UNREACHED)
-    reached = len(dist) - unreached
-    total = sum(dist) - unreached * UNREACHED
-    biggest = max((d for d in dist if d != UNREACHED), default=0)
+        values.byteswap()
+    return values
+
+
+def check_distances(out_path, want, unreached):
+    """Compare reached / max / sum of the distances to reference.txt."""
+    dist = read_u32(out_path)
+    num_unreached = dist.count(unreached)
+    reached = len(dist) - num_unreached
+    total = sum(dist) - num_unreached * unreached
+    biggest = max((d for d in dist if d != unreached), default=0)
     got = (reached, biggest, total)
-    want = tuple(ref_row[c] for c in ref_cols)
     if got == want:
         return "pass", ""
     return "FAIL", (f"reached/max/sum got {got[0]}/{got[1]}/{got[2]}, "
                     f"want {want[0]}/{want[1]}/{want[2]}")
 
 
-def run_one(binary, benchmark, graph, source, args, out_path, log_path):
-    # TODO: This command needs to change depending on what benchmark is being run
-    cmd = [str(binary), benchmark, str(graph.path), args.weight_type,
-            args.scheduler, str(source), "--out", str(out_path), "--time"]
+def check_pair_distance(out_path, want, unreached):
+    """Compare the one distance A* writes to astar_reference.txt."""
+    got = list(read_u32(out_path))
+    # graph_prep writes UINT64_MAX when there is no path
+    want = unreached if want >= 2**63 else want
+    if got == [want]:
+        return "pass", ""
+    return "FAIL", f"distance got {got}, want {want}"
+
+
+@lru_cache(maxsize=1)
+def read_csr(path):
+    """(row_end, dst) of a .gr file as numpy arrays."""
+    nodes, edges = np.fromfile(path, "<u8", 4)[2:].astype(int)
+    row_end = np.fromfile(path, "<u8", nodes, offset=32).astype(np.int64)
+    return row_end, np.memmap(path, "<u4", "r", 32 + 8 * int(nodes),
+                              (int(edges),))
+
+
+def check_ranks(out_path, graph_path, damping, epsilon):
+    """Check PageRank from its definition, so no reference is needed.
+
+    The kernel keeps rank = (1-d)/n + d * sum(rank[u] / deg[u] over in-edges)
+    - residual for every node, and stops once all residuals are below epsilon.
+    So recompute the residuals from the ranks and require 0 <= residual <=
+    epsilon, up to float32 rounding in the ranks. As in the kernel, dangling
+    nodes don't pass anything on.
+    """
+    if np is None:
+        return "-", "ranks not checked: numpy is not installed"
+    row_end, dst = read_csr(graph_path)
+    nodes = len(row_end)
+    ranks = np.fromfile(out_path, "<f4").astype(np.float64)
+    if len(ranks) != nodes:
+        return "FAIL", f"{len(ranks)} ranks for {nodes} nodes"
+    if not np.isfinite(ranks).all():
+        return "FAIL", f"{(~np.isfinite(ranks)).sum()} ranks are not finite"
+    degree = np.diff(row_end, prepend=0)
+    share = np.divide(ranks, degree, out=np.zeros(nodes), where=degree > 0)
+    incoming = np.zeros(nodes)
+    # ~16M edges at a time, to bound memory
+    first = 0
+    while first < nodes:
+        start = row_end[first - 1] if first else 0
+        last = max(first + 1, int(np.searchsorted(row_end, start + (1 << 24),
+                                                  side="right")))
+        part = np.repeat(share[first:last], degree[first:last])
+        incoming += np.bincount(dst[start:row_end[last - 1]], weights=part,
+                                minlength=nodes)
+        first = last
+    residual = (1 - damping) / nodes + damping * incoming - ranks
+    slack = 1e-4 * np.abs(ranks)
+    # The kernel compares in float32, so allow epsilon to round too
+    bad = (residual > epsilon * (1 + 1e-6) + slack) | (residual < -slack)
+    if not bad.any():
+        return "pass", ""
+    worst = int(np.argmax(np.where(bad, np.abs(residual), -1)))
+    return "FAIL", (f"{int(bad.sum())} of {nodes} ranks not converged, worst "
+                    f"residual {residual[worst]:.3g} at node {worst} "
+                    f"(epsilon {epsilon:.3g})")
+
+
+def make_jobs(benchmark, g, args):
+    """The runs of one benchmark on one graph. Raises ValueError when the
+    inputs it needs are missing."""
+    inputs = BENCHMARKS.get(benchmark, {}).get("inputs", "source")
+    name = f"{benchmark}_{g.name.replace('/', '_')}"
+    unreached = UNREACHED.get(args.weight_type)
+    f = g.file_for(benchmark)
+
+    def in_range(*vertices):
+        for v in vertices:
+            if not 0 <= v < f.nodes:
+                raise ValueError(f"vertex {v} is outside the graph "
+                                 f"({f.nodes:,} nodes)")
+
+    def first_n(items):
+        return items[:args.sources] if args.sources > 0 else items
+
+    if inputs == "pagerank":
+        epsilon = args.pr_tol / f.nodes
+        check = lambda out: check_ranks(out, f.path, args.damping, epsilon)
+        return [Job(benchmark, g, [repr(args.damping), repr(epsilon)], name,
+                    params=f"damping={args.damping} epsilon={epsilon:.6g}",
+                    check=check)]
+
+    if inputs == "pair":
+        if args.source is not None or args.dest is not None:
+            if args.source is None or args.dest is None:
+                raise ValueError("needs both --source and --dest")
+            pairs = [(args.source, args.dest)]
+        else:
+            pairs = first_n(g.pairs)
+        if not pairs:
+            raise ValueError("no pairs.txt; give --source and --dest")
+        jobs = []
+        for s, t in pairs:
+            in_range(s, t)
+            want = g.astar_reference.get((s, t))
+            check = None if want is None else (
+                lambda out, want=want: check_pair_distance(out, want,
+                                                           unreached))
+            jobs.append(Job(benchmark, g, [str(s), str(t)], f"{name}_{s}_{t}",
+                            source=s, target=t, check=check))
+        return jobs
+
+    ref_cols = BENCHMARKS.get(benchmark, {}).get("ref_cols")
+    if benchmark == "bfs":
+        unreached = UNREACHED["uint32"]
+    jobs = []
+    for s in [args.source] if args.source is not None else first_n(g.sources):
+        in_range(s)
+        row = g.reference.get(s)
+        check = None
+        if ref_cols and row and all(row[c] is not None for c in ref_cols):
+            want = tuple(row[c] for c in ref_cols)
+            check = lambda out, want=want: check_distances(out, want,
+                                                           unreached)
+        jobs.append(Job(benchmark, g, [str(s)], f"{name}_{s}", source=s,
+                        check=check))
+    return jobs
+
+
+def run_one(binary, job, args, out_path, log_path):
+    cmd = [str(binary), job.benchmark,
+           str(job.graph.file_for(job.benchmark).path), args.weight_type,
+           args.scheduler, *job.cli_args, "--out", str(out_path), "--time"]
     row = {"kernel_ms": "", "load_ms": "", "check": "", "detail": ""}
     start = time.monotonic()
     try:
@@ -273,16 +498,12 @@ def run_one(binary, benchmark, graph, source, args, out_path, log_path):
         row["kernel_ms"], row["load_ms"] = m.group(1), m.group(2)
     row["status"] = "ok"
 
-    ref_cols = BENCHMARKS.get(benchmark, {}).get("ref_cols")
-    ref_row = graph.reference.get(source)
-    if (args.no_check or ref_cols is None or ref_row is None
-            or any(ref_row[c] is None for c in ref_cols)):
+    if args.no_check or job.check is None:
         row["check"] = "-"
     elif not out_path.is_file():
         row["check"], row["detail"] = "FAIL", "no --out file written"
     else:
-        row["check"], row["detail"] = check_distances(out_path, ref_row,
-                                                      ref_cols)
+        row["check"], row["detail"] = job.check(out_path)
     return row
 
 
@@ -299,7 +520,7 @@ def parse_args():
     p.add_argument("-g", "--graphs", nargs="*", metavar="NAME",
                    help="graphs to run (default: every graph that fits)")
     p.add_argument("-b", "--benchmarks", nargs="*", metavar="NAME",
-                   help="benchmarks to run, e.g. bfs sssp pagerank "
+                   help="benchmarks to run, e.g. bfs sssp a_star pr "
                         f"(default: those of {', '.join(BENCHMARKS)} the "
                         "binary implements)")
     p.add_argument("-s", "--scheduler", default="initial_scheduler",
@@ -308,14 +529,23 @@ def parse_args():
                    help="extra directory to search for graphs (repeatable; "
                         "also read from $GRAPH_DIR)")
     p.add_argument("--sources", type=int, default=1, metavar="N",
-                   help="first N sources from each graph's sources.txt "
-                        "(default: 1, the main source; 0 for all)")
+                   help="first N sources from each graph's sources.txt, or "
+                        "pairs from pairs.txt for a_star (default: 1; 0 for "
+                        "all)")
     p.add_argument("--source", type=int, metavar="V",
                    help="use this source vertex on every graph instead")
+    p.add_argument("--dest", type=int, metavar="V",
+                   help="a_star target vertex, together with --source")
+    p.add_argument("--damping", type=float, default=0.85,
+                   help="PageRank damping factor (default: %(default)s)")
+    p.add_argument("--pr-tol", type=float, default=1e-3, metavar="T",
+                   help="PageRank tolerance; the epsilon passed to the binary "
+                        "is T / nodes, since its ranks sum to at most 1 "
+                        "(default: %(default)s)")
     p.add_argument("--runs", type=int, default=3,
                    help="repetitions per configuration (default: %(default)s)")
     p.add_argument("--weight-type", default="int32",
-                   choices=["int32", "uint32", "float32"])
+                   choices=["int32", "uint32"])
     p.add_argument("--timeout", type=float, default=600,
                    help="seconds before a run is killed (default: %(default)s)")
     p.add_argument("--no-build", action="store_true",
@@ -325,11 +555,11 @@ def parse_args():
                         "--no-build if not the default")
     p.add_argument("--cuda-arch", help="CMAKE_CUDA_ARCHITECTURES, e.g. 75")
     p.add_argument("--no-check", action="store_true",
-                   help="don't check results against reference.txt")
+                   help="don't check results")
     p.add_argument("--force", action="store_true",
                    help="run graphs even if they look too big")
     p.add_argument("--keep-output", action="store_true",
-                   help="keep each run's distances file")
+                   help="keep each run's output file")
     p.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     p.add_argument("--list", action="store_true",
                    help="list graphs and whether they fit, then exit")
@@ -345,15 +575,28 @@ def main():
 
     graphs = discover_graphs(graph_dirs)
     host_free, gpu_free = mem_available_bytes(), gpu_free_bytes()
-    for g in graphs.values():
-        check_fits(g, host_free, gpu_free)
 
     if args.list:
         for g in graphs.values():
-            status = f"SKIP ({g.skip_reason})" if g.skip_reason else "ok"
-            ref = "ref" if g.reference else "   "
-            print(f"{g.name:28} {g.nodes:>13,} nodes {g.edges:>15,} edges "
-                  f"{ref}  {status}\n{'':28} {g.path}")
+            # bfs and sssp need the same memory, so one line covers both
+            for benchmarks, f in ((("bfs", "pr"), g.plain),
+                                  (("a_star",), g.coords)):
+                if f is None:
+                    continue
+                ref = "ref" if (g.astar_reference if f is g.coords
+                                else g.reference) else "   "
+                label = "a_star" if f is g.coords else "bfs sssp pr"
+                reasons = {b: skip_reason(g, b, host_free, gpu_free)
+                           for b in benchmarks}
+                skipped = {b: r for b, r in reasons.items() if r}
+                if len(skipped) == len(reasons):
+                    status = f"SKIP ({skipped[benchmarks[0]]})"
+                elif skipped:  # only PageRank is too big
+                    status = f"ok, but SKIP pr ({skipped['pr']})"
+                else:
+                    status = "ok"
+                print(f"{g.name:28} {f.nodes:>13,} nodes {f.edges:>15,} edges "
+                      f"{ref}  {label:11}  {status}\n{'':28} {f.path}")
         return 0
 
     wanted = split_list(args.graphs)
@@ -366,73 +609,70 @@ def main():
         selected = [graphs[n] for n in wanted]
     else:
         selected = list(graphs.values())
-    runnable = []
-    for g in selected:
-        if g.skip_reason and not args.force:
-            print(f"skip graph {g.name}: {g.skip_reason}")
-        else:
-            runnable.append(g)
-    if not runnable:
-        sys.exit("no graphs to run")
+    if not selected:
+        sys.exit("no graphs found (see --list, --graph-dir)")
 
     if args.bin == DEFAULT_BIN and not args.no_build:
         build(args.cuda_arch)
     if not args.bin.is_file():
         sys.exit(f"{args.bin} not found; build it or drop --no-build")
 
-    benchmarks = []
+    jobs = []
     for b in split_list(args.benchmarks) or list(BENCHMARKS):
+        b = ALIASES.get(b, b)
         try:
             supported = binary_supports(args.bin, b, args.scheduler,
                                         args.weight_type)
         except RuntimeError as e:
             sys.exit(str(e))
-        if supported:
-            benchmarks.append(b)
-        else:
+        if not supported:
             print(f"skip benchmark {b}: not implemented in {args.bin.name}")
-    if not benchmarks:
-        sys.exit("no benchmarks to run")
+            continue
+        for g in selected:
+            reason = skip_reason(g, b, host_free, gpu_free,
+                                 ignore_size=args.force)
+            if not reason:
+                try:
+                    jobs += make_jobs(b, g, args)
+                except ValueError as e:
+                    reason = str(e)
+            if reason:
+                print(f"skip {b} on {g.name}: {reason}")
+    if not jobs:
+        sys.exit("nothing to run")
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = args.results_dir / f"{args.scheduler}_{stamp}"
     (run_dir / "logs").mkdir(parents=True)
     csv_path = run_dir / "results.csv"
+    benchmarks = dict.fromkeys(j.benchmark for j in jobs)
+    names = dict.fromkeys(j.graph.name for j in jobs)
     print(f"scheduler {args.scheduler}; benchmarks {', '.join(benchmarks)}; "
-          f"graphs {', '.join(g.name for g in runnable)}\nresults in {run_dir}")
+          f"graphs {', '.join(names)}\nresults in {run_dir}")
 
     rows = []
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writeheader()
-        for benchmark in benchmarks:
-            for g in runnable:
-                if args.source is not None:
-                    sources = [args.source]
-                elif args.sources > 0:
-                    sources = g.sources[:args.sources]
-                else:
-                    sources = g.sources
-                for source in sources:
-                    for run in range(args.runs):
-                        tag = f"{benchmark}_{g.name.replace('/', '_')}_{source}_{run}"
-                        out_path = run_dir / f"{tag}.bin"
-                        # TODO: Again, this needs to change depending on the benchmark being run
-                        row = run_one(args.bin, benchmark, g, source, args,
-                                      out_path, run_dir / "logs" / f"{tag}.log")
-                        if not args.keep_output:
-                            out_path.unlink(missing_ok=True)
-                        row.update(scheduler=args.scheduler,
-                                   benchmark=benchmark, graph=g.name,
-                                   source=source, run=run)
-                        writer.writerow(row)
-                        f.flush()
-                        rows.append(row)
-                        print(f"  {benchmark:8} {g.name:24} src={source:<10} "
-                              f"run={run} {row['status']:7} "
-                              f"kernel={row['kernel_ms'] or '-':>10} ms "
-                              f"check={row['check'] or '-'} {row['detail']}",
-                              flush=True)
+        for job in jobs:
+            for run in range(args.runs):
+                tag = f"{job.tag}_{run}"
+                out_path = run_dir / f"{tag}.bin"
+                row = run_one(args.bin, job, args, out_path,
+                              run_dir / "logs" / f"{tag}.log")
+                if not args.keep_output:
+                    out_path.unlink(missing_ok=True)
+                row.update(scheduler=args.scheduler, benchmark=job.benchmark,
+                           graph=job.graph.name, source=job.source,
+                           target=job.target, params=job.params, run=run)
+                writer.writerow(row)
+                f.flush()
+                rows.append(row)
+                print(f"  {job.benchmark:8} {job.graph.name:24} "
+                      f"{endpoints(row):<24} run={run} {row['status']:7} "
+                      f"kernel={row['kernel_ms'] or '-':>10} ms "
+                      f"check={row['check'] or '-'} {row['detail']}",
+                      flush=True)
 
     print_summary(rows)
     print(f"\nCSV: {csv_path}")
@@ -440,12 +680,19 @@ def main():
     return 1 if bad else 0
 
 
+def endpoints(row):
+    if row["source"] == "":
+        return "-"
+    return (f"{row['source']}->{row['target']}" if row["target"] != ""
+            else str(row["source"]))
+
+
 def print_summary(rows):
     groups = {}
     for r in rows:
-        groups.setdefault((r["benchmark"], r["graph"], r["source"]),
+        groups.setdefault((r["benchmark"], r["graph"], endpoints(r)),
                           []).append(r)
-    print(f"\n{'benchmark':10}{'graph':26}{'source':>11}{'ok':>6}"
+    print(f"\n{'benchmark':10}{'graph':26}{'source':>20}{'ok':>6}"
           f"{'median ms':>12}{'min ms':>12}  check")
     for (benchmark, graph, source), rs in groups.items():
         times = [float(r["kernel_ms"]) for r in rs if r["kernel_ms"]]
@@ -455,7 +702,7 @@ def print_summary(rows):
                                                  else "-")
         med = f"{statistics.median(times):.3f}" if times else "-"
         best = f"{min(times):.3f}" if times else "-"
-        print(f"{benchmark:10}{graph:26}{source:>11}{ok:>4}/{len(rs):<1}"
+        print(f"{benchmark:10}{graph:26}{source:>20}{ok:>4}/{len(rs):<1}"
               f"{med:>12}{best:>12}  {check}")
 
 
