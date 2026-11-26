@@ -19,8 +19,9 @@ Examples (from the repo root):
   bench/run_benchmarks.py -g germany-osm -b a_star --sources 5       # first 5 pairs
   bench/run_benchmarks.py -g germany-osm -b a_star --source 4665057 --dest 436940
 
-Graphs are looked up in graphs/inputs/ plus every --graph-dir (or $GRAPH_DIR,
-separated by ':'). Both layouts are found:
+Graphs are looked up in graphs/inputs/, the group folder
+/nfs/ug/groups/capstone_proj_2026F/input_graphs (on the UG machines), and
+every --graph-dir (or $GRAPH_DIR, separated by ':'). Both layouts are found:
   <dir>/<name>.gr                 flat file, named <name>
   <dir>/<name>.agr                the same graph with coordinates, for a_star
   <dir>/<name>/<anything>.gr      prepared folder (bench.sh / graph_prep), named
@@ -53,7 +54,11 @@ except ImportError:
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = REPO_ROOT / "build"
 DEFAULT_BIN = REPO_ROOT / "bin" / "ece496"
+# The group's big graphs on the UG machines; only searched when it exists.
+GROUP_GRAPH_DIR = Path("/nfs/ug/groups/capstone_proj_2026F/input_graphs")
 DEFAULT_GRAPH_DIRS = [REPO_ROOT / "graphs" / "inputs"]
+if GROUP_GRAPH_DIR.is_dir():
+    DEFAULT_GRAPH_DIRS.append(GROUP_GRAPH_DIR)
 DEFAULT_RESULTS_DIR = REPO_ROOT / "bench" / "results"
 
 INT32_MAX = 2**31 - 1  # CSRGraph::index_type is int32_t
@@ -331,14 +336,30 @@ def read_u32(path):
     return values
 
 
-def check_distances(out_path, want, unreached):
-    """Compare reached / max / sum of the distances to reference.txt."""
+def summarize_distances(out_path, unreached):
+    """(reached, max, sum) of an --out distances file, the same three
+    numbers reference.txt and Lonestar's bfs-cpu / sssp-cpu report."""
     dist = read_u32(out_path)
     num_unreached = dist.count(unreached)
     reached = len(dist) - num_unreached
     total = sum(dist) - num_unreached * unreached
     biggest = max((d for d in dist if d != unreached), default=0)
-    got = (reached, biggest, total)
+    return reached, biggest, total
+
+
+def reference_for(benchmark, graph, source):
+    """The (reached, max, sum) reference.txt expects, or None if there is
+    nothing to check against."""
+    ref_cols = BENCHMARKS.get(benchmark, {}).get("ref_cols")
+    row = graph.reference.get(source)
+    if ref_cols is None or row is None:
+        return None
+    want = tuple(row[c] for c in ref_cols)
+    return None if None in want else want
+
+
+def compare_summary(got, want):
+    """(check, detail) for the CSV."""
     if got == want:
         return "pass", ""
     return "FAIL", (f"reached/max/sum got {got[0]}/{got[1]}/{got[2]}, "
@@ -407,22 +428,39 @@ def check_ranks(out_path, graph_path, damping, epsilon):
                     f"(epsilon {epsilon:.3g})")
 
 
+def check_in_range(f, *vertices):
+    """Raise ValueError if a vertex isn't in graph file f."""
+    for v in vertices:
+        if not 0 <= v < f.nodes:
+            raise ValueError(f"vertex {v} is outside the graph "
+                             f"({f.nodes:,} nodes)")
+
+
+def first_n(items, args):
+    """The first --sources items (all of them for 0)."""
+    return items[:args.sources] if args.sources > 0 else items
+
+
+def pick_sources(g, args):
+    """--source, or the first --sources of g's sources.txt. Raises
+    ValueError if one is outside the graph."""
+    sources = ([args.source] if args.source is not None
+               else first_n(g.sources, args))
+    check_in_range(g.plain, *sources)
+    return sources
+
+
+def job_name(benchmark, g):
+    return f"{benchmark}_{g.name.replace('/', '_')}"
+
+
 def make_jobs(benchmark, g, args):
     """The runs of one benchmark on one graph. Raises ValueError when the
     inputs it needs are missing."""
     inputs = BENCHMARKS.get(benchmark, {}).get("inputs", "source")
-    name = f"{benchmark}_{g.name.replace('/', '_')}"
+    name = job_name(benchmark, g)
     unreached = UNREACHED.get(args.weight_type)
     f = g.file_for(benchmark)
-
-    def in_range(*vertices):
-        for v in vertices:
-            if not 0 <= v < f.nodes:
-                raise ValueError(f"vertex {v} is outside the graph "
-                                 f"({f.nodes:,} nodes)")
-
-    def first_n(items):
-        return items[:args.sources] if args.sources > 0 else items
 
     if inputs == "pagerank":
         epsilon = args.pr_tol / f.nodes
@@ -437,12 +475,12 @@ def make_jobs(benchmark, g, args):
                 raise ValueError("needs both --source and --dest")
             pairs = [(args.source, args.dest)]
         else:
-            pairs = first_n(g.pairs)
+            pairs = first_n(g.pairs, args)
         if not pairs:
             raise ValueError("no pairs.txt; give --source and --dest")
         jobs = []
         for s, t in pairs:
-            in_range(s, t)
+            check_in_range(f, s, t)
             want = g.astar_reference.get((s, t))
             check = None if want is None else (
                 lambda out, want=want: check_pair_distance(out, want,
@@ -451,52 +489,63 @@ def make_jobs(benchmark, g, args):
                             source=s, target=t, check=check))
         return jobs
 
-    ref_cols = BENCHMARKS.get(benchmark, {}).get("ref_cols")
     if benchmark == "bfs":
         unreached = UNREACHED["uint32"]
     jobs = []
-    for s in [args.source] if args.source is not None else first_n(g.sources):
-        in_range(s)
-        row = g.reference.get(s)
+    for s in pick_sources(g, args):
+        want = reference_for(benchmark, g, s)
         check = None
-        if ref_cols and row and all(row[c] is not None for c in ref_cols):
-            want = tuple(row[c] for c in ref_cols)
-            check = lambda out, want=want: check_distances(out, want,
-                                                           unreached)
+        if want is not None:
+            check = lambda out, want=want: compare_summary(
+                summarize_distances(out, unreached), want)
         jobs.append(Job(benchmark, g, [str(s)], f"{name}_{s}", source=s,
                         check=check))
     return jobs
+
+
+def new_row():
+    return {"kernel_ms": "", "load_ms": "", "check": "", "detail": ""}
+
+
+def run_logged(cmd, timeout, log_path, row):
+    """Run cmd with a timeout, write its output to log_path and fill in
+    row's wall_s / status / detail. Returns the CompletedProcess when it
+    exited 0, else None (status is then "timeout" or "error")."""
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        row["wall_s"] = f"{time.monotonic() - start:.2f}"
+        row["status"] = "timeout"
+        row["detail"] = f"killed after {timeout}s"
+        log_path.write_text(f"$ {' '.join(cmd)}\n{e.stdout or ''}\n"
+                            f"{e.stderr or ''}")
+        return None
+    row["wall_s"] = f"{time.monotonic() - start:.2f}"
+    log_path.write_text(f"$ {' '.join(cmd)}\nexit {proc.returncode}\n"
+                        f"--- stdout\n{proc.stdout}\n--- stderr\n{proc.stderr}")
+    if proc.returncode != 0:
+        row["status"] = "error"
+        lines = (proc.stderr.strip() or proc.stdout.strip()).splitlines()
+        row["detail"] = lines[-1] if lines else f"exit {proc.returncode}"
+        return None
+    row["status"] = "ok"
+    return proc
 
 
 def run_one(binary, job, args, out_path, log_path):
     cmd = [str(binary), job.benchmark,
            str(job.graph.file_for(job.benchmark).path), args.weight_type,
            args.scheduler, *job.cli_args, "--out", str(out_path), "--time"]
-    row = {"kernel_ms": "", "load_ms": "", "check": "", "detail": ""}
-    start = time.monotonic()
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=args.timeout)
-    except subprocess.TimeoutExpired as e:
-        row["wall_s"] = f"{time.monotonic() - start:.2f}"
-        row["status"] = "timeout"
-        row["detail"] = f"killed after {args.timeout}s"
-        log_path.write_text(f"$ {' '.join(cmd)}\n{e.stdout or ''}\n"
-                            f"{e.stderr or ''}")
-        return row
-    row["wall_s"] = f"{time.monotonic() - start:.2f}"
-    log_path.write_text(f"$ {' '.join(cmd)}\nexit {proc.returncode}\n"
-                        f"--- stdout\n{proc.stdout}\n--- stderr\n{proc.stderr}")
-    if proc.returncode != 0:
-        row["status"] = "error"
-        lines = proc.stderr.strip().splitlines()
-        row["detail"] = lines[-1] if lines else f"exit {proc.returncode}"
+    row = new_row()
+    proc = run_logged(cmd, args.timeout, log_path, row)
+    if proc is None:
         return row
     m = re.search(r'"kernel_ms":\s*([0-9.eE+-]+).*"load_ms":\s*([0-9.eE+-]+)',
                   proc.stdout)
     if m:
         row["kernel_ms"], row["load_ms"] = m.group(1), m.group(2)
-    row["status"] = "ok"
 
     if args.no_check or job.check is None:
         row["check"] = "-"
@@ -514,17 +563,16 @@ def split_list(values):
     return [v for item in values or [] for v in item.split(",") if v]
 
 
-def parse_args():
+def common_parser(description, benchmark_names, default_benchmarks):
+    """Options shared by run_benchmarks.py and run_galois.py."""
     p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=description,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("-g", "--graphs", nargs="*", metavar="NAME",
                    help="graphs to run (default: every graph that fits)")
     p.add_argument("-b", "--benchmarks", nargs="*", metavar="NAME",
-                   help="benchmarks to run, e.g. bfs sssp a_star pr "
-                        f"(default: those of {', '.join(BENCHMARKS)} the "
-                        "binary implements)")
-    p.add_argument("-s", "--scheduler", default="initial_scheduler",
-                   help="scheduler to run (default: %(default)s)")
+                   help=f"benchmarks to run, from {', '.join(benchmark_names)} "
+                        f"(default: {default_benchmarks})")
     p.add_argument("--graph-dir", action="append", type=Path, default=[],
                    help="extra directory to search for graphs (repeatable; "
                         "also read from $GRAPH_DIR)")
@@ -534,6 +582,27 @@ def parse_args():
                         "all)")
     p.add_argument("--source", type=int, metavar="V",
                    help="use this source vertex on every graph instead")
+    p.add_argument("--runs", type=int, default=3,
+                   help="repetitions per configuration (default: %(default)s)")
+    p.add_argument("--timeout", type=float, default=600,
+                   help="seconds before a run is killed (default: %(default)s)")
+    p.add_argument("--no-build", action="store_true",
+                   help="use the existing binaries instead of rebuilding")
+    p.add_argument("--no-check", action="store_true",
+                   help="don't check results")
+    p.add_argument("--force", action="store_true",
+                   help="run graphs even if they look too big")
+    p.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    p.add_argument("--list", action="store_true",
+                   help="list graphs and whether they fit, then exit")
+    return p
+
+
+def parse_args():
+    p = common_parser(__doc__, list(BENCHMARKS),
+                      "those the binary implements")
+    p.add_argument("-s", "--scheduler", default="initial_scheduler",
+                   help="scheduler to run (default: %(default)s)")
     p.add_argument("--dest", type=int, metavar="V",
                    help="a_star target vertex, together with --source")
     p.add_argument("--damping", type=float, default=0.85,
@@ -542,41 +611,92 @@ def parse_args():
                    help="PageRank tolerance; the epsilon passed to the binary "
                         "is T / nodes, since its ranks sum to at most 1 "
                         "(default: %(default)s)")
-    p.add_argument("--runs", type=int, default=3,
-                   help="repetitions per configuration (default: %(default)s)")
     p.add_argument("--weight-type", default="int32",
                    choices=["int32", "uint32"])
-    p.add_argument("--timeout", type=float, default=600,
-                   help="seconds before a run is killed (default: %(default)s)")
-    p.add_argument("--no-build", action="store_true",
-                   help="use the existing binary instead of rebuilding")
     p.add_argument("--bin", type=Path, default=DEFAULT_BIN,
                    help="binary to run (default: bin/ece496); implies "
                         "--no-build if not the default")
     p.add_argument("--cuda-arch", help="CMAKE_CUDA_ARCHITECTURES, e.g. 75")
-    p.add_argument("--no-check", action="store_true",
-                   help="don't check results")
-    p.add_argument("--force", action="store_true",
-                   help="run graphs even if they look too big")
     p.add_argument("--keep-output", action="store_true",
                    help="keep each run's output file")
-    p.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
-    p.add_argument("--list", action="store_true",
-                   help="list graphs and whether they fit, then exit")
     return p.parse_args()
 
 
-def main():
-    args = parse_args()
+def select_graphs(args, print_list):
+    """Find the graphs and return the ones -g asks for (all by default).
+    For --list, calls print_list(graphs) instead and returns None."""
     graph_dirs = list(DEFAULT_GRAPH_DIRS)
     graph_dirs += [Path(d) for d in os.environ.get("GRAPH_DIR", "").split(":")
                    if d]
     graph_dirs += args.graph_dir
 
     graphs = discover_graphs(graph_dirs)
+    if args.list:
+        print_list(graphs)
+        return None
+
+    wanted = split_list(args.graphs)
+    if wanted:
+        unknown = [n for n in wanted if n not in graphs]
+        if unknown:
+            sys.exit(f"unknown graph(s): {', '.join(unknown)}\n"
+                     f"found: {', '.join(graphs) or 'none'} "
+                     "(see --list, --graph-dir)")
+        selected = [graphs[n] for n in wanted]
+    else:
+        selected = list(graphs.values())
+    if not selected:
+        sys.exit("no graphs found (see --list, --graph-dir)")
+    return selected
+
+
+def run_matrix(args, label, jobs, run_fn):
+    """Run every job --runs times, write results.csv under
+    bench/results/<label>_<time>/ and print a summary. run_fn(job, run_dir,
+    tag) returns a CSV row (see new_row) and writes its log to
+    run_dir/logs/<tag>.log. Returns the exit code."""
+    if not jobs:
+        sys.exit("nothing to run")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = args.results_dir / f"{label}_{stamp}"
+    (run_dir / "logs").mkdir(parents=True)
+    csv_path = run_dir / "results.csv"
+    benchmarks = dict.fromkeys(j.benchmark for j in jobs)
+    names = dict.fromkeys(j.graph.name for j in jobs)
+    print(f"scheduler {label}; benchmarks {', '.join(benchmarks)}; "
+          f"graphs {', '.join(names)}\nresults in {run_dir}")
+
+    rows = []
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        for job in jobs:
+            for run in range(args.runs):
+                tag = f"{job.tag}_{run}"
+                row = run_fn(job, run_dir, tag)
+                row.update(scheduler=label, benchmark=job.benchmark,
+                           graph=job.graph.name, source=job.source,
+                           target=job.target, params=job.params, run=run)
+                writer.writerow(row)
+                f.flush()
+                rows.append(row)
+                print(f"  {job.benchmark:8} {job.graph.name:24} "
+                      f"{endpoints(row):<24} run={run} {row['status']:7} "
+                      f"kernel={row['kernel_ms'] or '-':>10} ms "
+                      f"check={row['check'] or '-'} {row['detail']}",
+                      flush=True)
+
+    print_summary(rows)
+    print(f"\nCSV: {csv_path}")
+    bad = [r for r in rows if r["status"] != "ok" or r["check"] == "FAIL"]
+    return 1 if bad else 0
+
+
+def main():
+    args = parse_args()
     host_free, gpu_free = mem_available_bytes(), gpu_free_bytes()
 
-    if args.list:
+    def print_list(graphs):
         for g in graphs.values():
             # bfs and sssp need the same memory, so one line covers both
             for benchmarks, f in ((("bfs", "pr"), g.plain),
@@ -597,20 +717,10 @@ def main():
                     status = "ok"
                 print(f"{g.name:28} {f.nodes:>13,} nodes {f.edges:>15,} edges "
                       f"{ref}  {label:11}  {status}\n{'':28} {f.path}")
-        return 0
 
-    wanted = split_list(args.graphs)
-    if wanted:
-        unknown = [n for n in wanted if n not in graphs]
-        if unknown:
-            sys.exit(f"unknown graph(s): {', '.join(unknown)}\n"
-                     f"found: {', '.join(graphs) or 'none'} "
-                     "(see --list, --graph-dir)")
-        selected = [graphs[n] for n in wanted]
-    else:
-        selected = list(graphs.values())
-    if not selected:
-        sys.exit("no graphs found (see --list, --graph-dir)")
+    selected = select_graphs(args, print_list)
+    if selected is None:
+        return 0
 
     if args.bin == DEFAULT_BIN and not args.no_build:
         build(args.cuda_arch)
@@ -638,46 +748,16 @@ def main():
                     reason = str(e)
             if reason:
                 print(f"skip {b} on {g.name}: {reason}")
-    if not jobs:
-        sys.exit("nothing to run")
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = args.results_dir / f"{args.scheduler}_{stamp}"
-    (run_dir / "logs").mkdir(parents=True)
-    csv_path = run_dir / "results.csv"
-    benchmarks = dict.fromkeys(j.benchmark for j in jobs)
-    names = dict.fromkeys(j.graph.name for j in jobs)
-    print(f"scheduler {args.scheduler}; benchmarks {', '.join(benchmarks)}; "
-          f"graphs {', '.join(names)}\nresults in {run_dir}")
+    def run_fn(job, run_dir, tag):
+        out_path = run_dir / f"{tag}.bin"
+        row = run_one(args.bin, job, args, out_path,
+                      run_dir / "logs" / f"{tag}.log")
+        if not args.keep_output:
+            out_path.unlink(missing_ok=True)
+        return row
 
-    rows = []
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        for job in jobs:
-            for run in range(args.runs):
-                tag = f"{job.tag}_{run}"
-                out_path = run_dir / f"{tag}.bin"
-                row = run_one(args.bin, job, args, out_path,
-                              run_dir / "logs" / f"{tag}.log")
-                if not args.keep_output:
-                    out_path.unlink(missing_ok=True)
-                row.update(scheduler=args.scheduler, benchmark=job.benchmark,
-                           graph=job.graph.name, source=job.source,
-                           target=job.target, params=job.params, run=run)
-                writer.writerow(row)
-                f.flush()
-                rows.append(row)
-                print(f"  {job.benchmark:8} {job.graph.name:24} "
-                      f"{endpoints(row):<24} run={run} {row['status']:7} "
-                      f"kernel={row['kernel_ms'] or '-':>10} ms "
-                      f"check={row['check'] or '-'} {row['detail']}",
-                      flush=True)
-
-    print_summary(rows)
-    print(f"\nCSV: {csv_path}")
-    bad = [r for r in rows if r["status"] != "ok" or r["check"] == "FAIL"]
-    return 1 if bad else 0
+    return run_matrix(args, args.scheduler, jobs, run_fn)
 
 
 def endpoints(row):
