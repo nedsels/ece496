@@ -14,3 +14,4 @@
 /bench/results/
 *.pbf
 /build-galois/
+/.venv/
