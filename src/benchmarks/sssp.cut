@@ -130,6 +130,7 @@ static __global__ void sssp_kernel(
 
     using task_type = typename SSSP<GraphType>::TaskType;
     using index_type = typename GraphType::index_type;
+    using weight_type = typename GraphType::edge_data_type;
 
     task_type source_task = {source, 0};
     unsigned num_tasks = 0;
@@ -138,8 +139,12 @@ static __global__ void sssp_kernel(
         num_tasks = 1;
     }
     // Only thread 0 is really pushing a task here, but all threads must call since they are in lock step
-    scheduler->push(&source_task, num_tasks, lane_id);
+    if (scheduler->push(&source_task, num_tasks, lane_id) == PUSH_DEADLOCK) {
+        printf("Deadlock\n");
+        __trap();
+    }
 
+    task_type new_tasks[TASK_BUFFER_SIZE];
     task_type task;
     unsigned tasks_read;
     // Terminates when all sections are empty (i.e. no tasks left)
@@ -148,48 +153,47 @@ static __global__ void sssp_kernel(
     // Task for each edge means that the work done by the thread is a single edge relaxation rather than O(degree)
     // Consider a power law graph. One vertex can have a degree in the thousands while others have <10.
     while (scheduler->pop(&task, &tasks_read, warpSize, blockIdx.x, lane_id) != POP_DONE) {
-        task_type* new_tasks = nullptr;
-        unsigned num_new_tasks = 0;
+        index_type v = 0;
+        weight_type task_dist = 0;
+        // Edges [e_rel, e_end) of v are left to relax
+        index_type e_rel = 0;
+        index_type e_end = 0;
         // pop() writes to the lowest lanes
         if (lane_id < tasks_read) {
-            index_type v = task.item;
-            const auto task_dist = task.priority;
-            const auto best_dist = dist[v];
-            const index_type degree = graph.getOutDegree(v);
+            v = task.item;
+            task_dist = task.priority;
+            const auto best_dist = load_cg(dist + v);
             // This task is the best distance found
             // Create tasks for each neighbour to traverse to
             // TODO: Handle floating point precision errors
-            if (task_dist == best_dist && degree > 0) {
-                new_tasks = (task_type*)malloc(degree * sizeof(task_type));
-                if (new_tasks == nullptr) {
-					// Device heap exhausted; abort the kernel so the host sees an error
-					// instead of silently dropping tasks.
-					printf("sssp kernel: device malloc of %u tasks failed\n", (unsigned)degree);
-					__trap();
-				}
-                for (index_type e_rel = 0; e_rel < degree; e_rel++) {
-                    index_type nbr = graph.getDestination(v, e_rel);
-                    // dist(v) = dist(u) + weight(u, v) for u --> v
-                    // Assumes NO negative weights
-                    const auto w = graph.getWeight(v, e_rel);
-                    assert(w >= 0);
-                    const auto new_dist = task_dist + w;
-                    // Update distance vector
-                    // Uphold invariant that if the task is scheduled, the node has a distance calculated
-                    // Atomic guarantees we only create task if we found something better at this instant
-                    if (atomicMin(dist + nbr, new_dist) > new_dist) {
-                        new_tasks[num_new_tasks++] = {nbr, new_dist};
-                    }
-                }
+            if (task_dist == best_dist) {
+                e_end = graph.getOutDegree(v);
             }
         }
-        // Push synchronizes so all threads synced after this call
-        if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
-            printf("Deadlock\n");
-            assert(false);
-        }
-        if (new_tasks != nullptr) {
-            free(new_tasks);
-        }
+        // Relax and push until every lane is out of edges
+        do {
+            unsigned num_new_tasks = 0;
+            for (; e_rel < e_end && num_new_tasks < TASK_BUFFER_SIZE; e_rel++) {
+                index_type nbr = graph.getDestination(v, e_rel);
+                // dist(v) = dist(u) + weight(u, v) for u --> v
+                // Assumes NO negative weights
+                const auto w = graph.getWeight(v, e_rel);
+                assert(w >= 0);
+                const auto new_dist = task_dist + w;
+                // Update distance vector
+                // Uphold invariant that if the task is scheduled, the node has a distance calculated
+                // Atomic guarantees we only create task if we found something better at this instant
+                if (atomicMin(dist + nbr, new_dist) > new_dist) {
+                    new_tasks[num_new_tasks++] = {nbr, new_dist};
+                }
+            }
+            // Push synchronizes so all threads synced after this call
+            if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
+                // Abort the kernel so the host sees an error instead of silently
+                // dropping tasks.
+                printf("Deadlock\n");
+                __trap();
+            }
+        } while (__any_sync(FULL_MASK, e_rel < e_end));
     }
 }

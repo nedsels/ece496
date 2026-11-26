@@ -8,10 +8,12 @@
 
 #include <cassert>
 #include <climits>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <algorithm>
+#include <utility>
 
 namespace {
 
@@ -117,7 +119,8 @@ Benchmarks::Status A_STAR<GraphType>::write_results(const char* path) {
   }
   const size_t written = fwrite(&h_distances[dst], sizeof(weight_type), 1, file);
   const bool closed = fclose(file) == 0;
-  if (written != static_cast<size_t>(nnodes) || !closed) {
+  // Only the destination's distance is written
+  if (written != 1 || !closed) {
     std::cerr << "Failed writing output file: " << path << '\n';
     return Benchmarks::Status::ERROR;
   }
@@ -154,8 +157,12 @@ static __global__ void a_star_kernel(
         num_tasks = 1;
     }
     // Only thread 0 is really pushing a task here, but all threads must call since they are in lock step
-    scheduler->push(&source_task, num_tasks, lane_id);
+    if (scheduler->push(&source_task, num_tasks, lane_id) == PUSH_DEADLOCK) {
+        printf("Deadlock\n");
+        __trap();
+    }
 
+    task_type new_tasks[TASK_BUFFER_SIZE];
     task_type task;
     unsigned tasks_read;
     // Cache the coordinate of the destination node
@@ -167,63 +174,62 @@ static __global__ void a_star_kernel(
     // Task for each edge means that the work done by the thread is a single edge relaxation rather than O(degree)
     // Consider a power law graph. One vertex can have a degree in the thousands while others have <10.
     while (scheduler->pop(&task, &tasks_read, warpSize, blockIdx.x, lane_id) != POP_DONE) {
-        task_type* new_tasks = nullptr;
-        unsigned num_new_tasks = 0;
+        index_type v = 0;
+        weight_type cur_g_score = 0;
+        // Edges [e_rel, e_end) of v are left to relax
+        index_type e_rel = 0;
+        index_type e_end = 0;
         // pop() writes to the lowest lanes
         // TODO: This code assumes positive integer weights (float disabled for now)
         if (lane_id < tasks_read) {
-            index_type v = task.item;
+            v = task.item;
             const float task_f_score = task.priority;
             // Prune task if the f score is greater than or equal to the best distance already found
             // This works since h is admissible
             // It must be the case that the actual distance from v to dest is greater than (or equal to) h(v)
             // As such, if f(v) >= g(dest), then the current task at v cannot improve the solution
             if (static_cast<weight_type>(task_f_score) < g_scores[dest]) {
-                const weight_type cur_g_score = g_scores[v];
+                cur_g_score = load_cg(g_scores + v);
                 // Compute f score to compare against popped f score
                 // This is done because of floating point precision
                 // Alternatively, we can store both f and g scores in the scheduler but this complicates 
                 // how to handle priority in the scheduler
                 const float cur_f_score = static_cast<float>(cur_g_score) + h(graph, v, static_cast<coord>(dest_coord));
-                const index_type degree = graph.getOutDegree(v);
                 // Discard task if stale
-                if (task_f_score <= cur_f_score && degree > 0) {
-                    new_tasks = (task_type*)malloc(degree * sizeof(task_type));
-                    if (new_tasks == nullptr) {
-                        // Device heap exhausted; abort the kernel so the host sees an error
-                        // instead of silently dropping tasks.
-                        printf("a* kernel: device malloc of %u tasks failed\n", (unsigned)degree);
-                        __trap();
-                    }
-                    for (index_type e_rel = 0; e_rel < degree; e_rel++) {
-                        index_type nbr = graph.getDestination(v, e_rel);
-                        // dist(v) = dist(u) + weight(u, v) for u --> v
-                        // Assumes NO negative weights
-                        const weight_type w = graph.getWeight(v, e_rel); /* Implicit cast to float */
-                        assert(w >= 0);
-                        const weight_type tentative_g_score = cur_g_score + w;
-                        // Overflow guard
-                        if (tentative_g_score < cur_g_score) assert(false);
-                        // Found better distance to node, update
-                        if (atomicMin(g_scores + nbr, tentative_g_score) > tentative_g_score) {
-                            // Push f score
-                            new_tasks[num_new_tasks++] = {
-                                nbr, 
-                                static_cast<float>(tentative_g_score) + h(graph, nbr, static_cast<coord>(dest_coord))
-                            };
-                        }
-                    }
+                if (task_f_score <= cur_f_score) {
+                    e_end = graph.getOutDegree(v);
                 }
             }
         }
-        // Push synchronizes so all threads synced after this call
-        if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
-            printf("Deadlock\n");
-            assert(false);
-        }
-        if (new_tasks != nullptr) {
-            free(new_tasks);
-        }
+        // Relax and push until every lane is out of edges
+        do {
+            unsigned num_new_tasks = 0;
+            for (; e_rel < e_end && num_new_tasks < TASK_BUFFER_SIZE; e_rel++) {
+                index_type nbr = graph.getDestination(v, e_rel);
+                // dist(v) = dist(u) + weight(u, v) for u --> v
+                // Assumes NO negative weights
+                const weight_type w = graph.getWeight(v, e_rel); /* Implicit cast to float */
+                assert(w >= 0);
+                const weight_type tentative_g_score = cur_g_score + w;
+                // Overflow guard
+                if (tentative_g_score < cur_g_score) assert(false);
+                // Found better distance to node, update
+                if (atomicMin(g_scores + nbr, tentative_g_score) > tentative_g_score) {
+                    // Push f score
+                    new_tasks[num_new_tasks++] = {
+                        nbr, 
+                        static_cast<float>(tentative_g_score) + h(graph, nbr, static_cast<coord>(dest_coord))
+                    };
+                }
+            }
+            // Push synchronizes so all threads synced after this call
+            if (scheduler->push(new_tasks, num_new_tasks, lane_id) == PUSH_DEADLOCK) {
+                // Abort the kernel so the host sees an error instead of silently
+                // dropping tasks.
+                printf("Deadlock\n");
+                __trap();
+            }
+        } while (__any_sync(FULL_MASK, e_rel < e_end));
     }
 }
 
@@ -240,8 +246,9 @@ __device__ float h(
     // Euclidean distance
     // Assumes the coordinates are chosen such that the heuristic is admissible (i.e. never overestimates)
     const auto cur_pos = graph.getNodeData(n);
-    const auto dx = std::abs(dest_coord.first - cur_pos.first);
-    const auto dy = std::abs(dest_coord.second - cur_pos.second);
+    // Square as float: int32 overflows once a difference exceeds 46340
+    const float dx = static_cast<float>(dest_coord.first - cur_pos.first);
+    const float dy = static_cast<float>(dest_coord.second - cur_pos.second);
     return sqrtf(dx * dx + dy * dy);
 }
 
