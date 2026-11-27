@@ -3,6 +3,7 @@
 #include <common/utils.cuh>
 #include <common/shared_mem.cuh>
 #include <scheduler/enum.cuh>
+#include <scheduler/scheduler.cuh>
 #include <benchmarks/benchmarks.cuh>
 
 #include <cuda_runtime.h>
@@ -78,9 +79,25 @@ Benchmarks::Status BFS<GraphType>::copy_to_host() {
 template <typename GraphType>
 template <typename SchedulerType>
 Benchmarks::Status BFS<GraphType>::solve(
-	GraphType d_graph, SchedulerType* d_scheduler, const cudaDeviceProp& prop
+	GraphType d_graph, SchedulerType& h_scheduler, const cudaDeviceProp& prop
 ) {
 	const unsigned num_blocks = prop.multiProcessorCount >> 1;
+#ifndef COOP_VERSION
+	const unsigned block_size = prop.maxThreadsPerBlock >> 1;
+#endif
+#ifdef COOP_VERSION
+	// TODO: tune the shared memory size
+	constexpr size_t WARPS_PER_BLOCK = 8; /* 256 threads */
+	constexpr size_t STAGE_CAP = 256;
+	const unsigned block_size = WARPS_PER_BLOCK << 5;
+#endif
+	const unsigned total_warps = num_blocks * (block_size >> 5);
+
+	// Setup scheduler with grid size
+	SchedulerType *d_sched = setup_scheduler(h_scheduler, num_blocks, total_warps, prop);
+	if (d_sched == nullptr) {
+		return Benchmarks::Status::ERROR;
+	}
 	
 	cudaEvent_t start, stop;
 	CUDA_CHECK(cudaEventCreate(&start));
@@ -89,22 +106,13 @@ Benchmarks::Status BFS<GraphType>::solve(
 	CUDA_CHECK(cudaEventRecord(start));
 
 #ifndef COOP_VERSION
-	const unsigned block_size = prop.maxThreadsPerBlock >> 1;
-	bfs_kernel<<<num_blocks, block_size>>>(
-		d_graph, src, d_distances, d_scheduler
-	);
+	bfs_kernel<<<num_blocks, block_size>>>(d_graph, src, d_distances, d_sched);
 #endif
-#ifdef COOP_VERSION
-	// TODO: tune the shared memory size
-	constexpr size_t WARPS_PER_BLOCK = 8; /* 256 threads */
-	constexpr size_t STAGE_CAP = 256;
-	const unsigned block_size = WARPS_PER_BLOCK << 5;
-	
+#ifdef COOP_VERSION	
 	assert(WARPS_PER_BLOCK <= prop.sharedMemPerBlock / sizeof(SMem));
 	const unsigned shared_mem_size_alloc = WARPS_PER_BLOCK * sizeof(SMem);
-	printf("Starting kernel\n");
 	bfs_kernel_coop_warp<<<num_blocks, block_size, shared_mem_size_alloc>>>(
-		d_graph, src, d_distances, d_scheduler, STAGE_CAP
+		d_graph, src, d_distances, d_sched, STAGE_CAP
 	);
 #endif
 	CUDA_CHECK(cudaGetLastError());
@@ -114,6 +122,9 @@ Benchmarks::Status BFS<GraphType>::solve(
 
 	CUDA_CHECK(cudaEventDestroy(start));
 	CUDA_CHECK(cudaEventDestroy(stop));
+
+	// Clean up scheduler
+	h_scheduler.device_dealloc();
 
 	return Benchmarks::Status::SUCCESS;
 }
@@ -290,11 +301,11 @@ static __global__ void bfs_kernel_coop_warp(
 			const unsigned curr_dist = *(volatile unsigned*)&dist[v];
 			const index_type d = graph.getOutDegree(v);
 			// There is work to do
-			if (curr_dist == prev_dist && degree > 0) {
+			if (curr_dist == prev_dist && d > 0) {
 				// Create work item to push into task pool
 				vertex = {
 					.id = v,
-					.degree = degree,
+					.degree = d,
 					.priority = prev_dist
 				};
 				degree = d;
@@ -302,7 +313,6 @@ static __global__ void bfs_kernel_coop_warp(
 		}
 		work_pool[lane_id] = vertex;
 		__syncwarp(); // All lanes must complete write
-		printf("thread %llu initial tasks\n", threadIdx.x);
 
 		// Inclusive prefix
 		index_type prefix = degree;
@@ -312,7 +322,6 @@ static __global__ void bfs_kernel_coop_warp(
 			if (lane_id >= i) prefix += n;
 		}
 		const index_type total_edges = __shfl_sync(FULL_MASK, prefix, 31);
-		printf("thread %llu prefix calculated\n", threadIdx.x);
 
 		// Determine work load of this lane, lower lanes get remainder
 		const index_type base = total_edges >> 5;
@@ -328,7 +337,6 @@ static __global__ void bfs_kernel_coop_warp(
 		// Need to ensure every lane does this loop the same number of times or else deadlock
 		const size_t lane_iters = base + (remainder ? 1 : 0);
 		for (size_t i = 0; i < lane_iters; ++i, e_offset += warpSize) {
-			printf("Block ID: %llu Lane: %llu Slot: %llu e_off: %llu\n", blockIdx.x, lane_id, slot, e_offset);
 			bool push_task = false;
 			task_type new_task;
 			// Still has work to do
@@ -362,11 +370,8 @@ static __global__ void bfs_kernel_coop_warp(
 		}
 		
 		// Flush any staged tasks
-		printf("thread %llu End loop\n", threadIdx.x);
 		__syncwarp();
-		printf("thread %llu Before flush call\n", threadIdx.x);
 		flush_stage(stage_count, stage, scheduler);
-		printf("thread %llu returned flush call\n");
 		stage_count = 0;
 		__syncwarp();
 	}
@@ -386,7 +391,6 @@ __device__ void flush_stage(const size_t stage_count, TaskType *stage, Scheduler
 	const unsigned remainder = stage_count & 31;
 	const unsigned tasks_to_push = base + (lane_id < remainder);
 	const unsigned offset = base * lane_id + min(lane_id, remainder);
-	printf("Attempt flush\n");
 	if (scheduler->push(stage + offset, tasks_to_push, lane_id) == PUSH_DEADLOCK) {
 		printf("Deadlock\n");
 		assert(false);

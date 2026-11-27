@@ -5,6 +5,6 @@ template<size_t CAP, typename Task, typename WorkItem>
 struct alignas(16) WarpSMem {
     // Work pool: one slot per lane
     WorkItem work_pool[32];
-    // Buffer to stage new tasks before commiting to scheduler
+    // Buffer to stage new tasks before committing to scheduler
     Task stage[CAP];
 };

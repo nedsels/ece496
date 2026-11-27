@@ -85,10 +85,18 @@ int main(int argc, char* argv[]) {
       return run_with_weight<SSSP>(argv[2], argv[3], scheduler_choice, prop, config, options);
     }
     if (std::strcmp(argv[1], "a_star") == 0) {
+      if (argc < 7) {
+        std::cerr << "A* requires at least 7 arguments\n";
+        return 1;
+      }
       const Benchmarks::BenchmarkConfig config = {.source=std::strtol(argv[5], nullptr, 10), .destination=std::strtol(argv[6], nullptr, 10)};
       return run_with_weight<A_STAR, std::pair<std::int32_t, std::int32_t>>(argv[2], argv[3], scheduler_choice, prop, config, options);
     }
     if (std::strcmp(argv[1], "pr") == 0) {
+      if (argc < 7) {
+        std::cerr << "PR requires at least 7 arguments\n";
+        return 1;
+      }
       const Benchmarks::BenchmarkConfig config = {.source=std::nullopt, .destination=std::nullopt, .damping_factor=std::stof(argv[5]), .epsilon=std::stof(argv[6])};
       return run_with_weight<PAGERANK>(argv[2], argv[3], scheduler_choice, prop, config, options);
     }
@@ -173,32 +181,12 @@ Benchmarks::Status run_benchmark(
   try {
     Scheduler<TaskType> h_scheduler = get_scheduler<TaskType>(scheduler_choice);
 
-    // HYPERPARAMETER
-    // Reserve 1/8 of free VRAM (completely arbitrary)
-    std::size_t free_bytes = 0;
-    std::size_t total_bytes = 0;
-    CUDA_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
-    const unsigned scheduler_byte_capacity =
-        static_cast<unsigned>(free_bytes / 8);
-
-    // HYPERPARAMETER
-    // Use one block per half of SMs and half the maximum number of warps per
-    // block (also arbitrary)
-    const unsigned num_blocks = prop.multiProcessorCount / 2;
-    const unsigned warps_per_block =
-        prop.maxThreadsPerBlock / prop.warpSize / 2;
-    const unsigned num_warps = warps_per_block * num_blocks;
-
     std::visit(
         [&](auto& scheduler_impl) {
-          scheduler_impl.init(scheduler_byte_capacity, num_blocks, num_warps);
-          auto* d_scheduler = scheduler_impl.device_setup(prop);
-          if (d_scheduler == nullptr ||
-              benchmark.solve(d_graph, d_scheduler, prop) == Benchmarks::Status::ERROR ||
+          if (benchmark.solve(d_graph, scheduler_impl, prop) == Benchmarks::Status::ERROR ||
               benchmark.copy_to_host() == Benchmarks::Status::ERROR) {
             result = Benchmarks::Status::ERROR;
           }
-          scheduler_impl.device_dealloc();
         },
         h_scheduler);
 

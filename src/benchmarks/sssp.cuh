@@ -27,7 +27,7 @@ struct SSSP {
     // Run SSSP on d_graph.
     template <typename SchedulerType>
     Benchmarks::Status solve(
-        GraphType d_graph, SchedulerType* d_scheduler, const cudaDeviceProp& prop
+        GraphType d_graph, SchedulerType& h_scheduler, const cudaDeviceProp& prop
     );
 
     // Print distances by vertex on host

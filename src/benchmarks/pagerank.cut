@@ -2,6 +2,7 @@
 
 #include <common/utils.cuh>
 #include <scheduler/enum.cuh>
+#include <scheduler/scheduler.cuh>
 #include <benchmarks/benchmarks.cuh>
 
 #include <cuda_runtime.h>
@@ -94,10 +95,17 @@ Benchmarks::Status PAGERANK<GraphType>::copy_to_host() {
 template <typename GraphType>
 template <typename SchedulerType>
 Benchmarks::Status PAGERANK<GraphType>::solve(
-    GraphType d_graph, SchedulerType* d_scheduler, const cudaDeviceProp& prop
+    GraphType d_graph, SchedulerType& h_scheduler, const cudaDeviceProp& prop
 ) {
     const unsigned num_blocks = prop.multiProcessorCount >> 1;
 	const unsigned block_size = prop.maxThreadsPerBlock >> 1;
+    const unsigned total_warps = num_blocks * (block_size >> 5);
+
+    // Setup scheduler with grid size
+	SchedulerType *d_sched = setup_scheduler(h_scheduler, num_blocks, total_warps, prop);
+    if (d_sched == nullptr) {
+		return Benchmarks::Status::ERROR;
+	}
     
     cudaEvent_t start, stop;
 	CUDA_CHECK(cudaEventCreate(&start));
@@ -105,7 +113,7 @@ Benchmarks::Status PAGERANK<GraphType>::solve(
 
 	CUDA_CHECK(cudaEventRecord(start));
     page_rank_kernel<<<num_blocks, block_size>>>(
-        d_graph, d_ranks, d_residuals, damping_factor, epsilon, d_scheduler
+        d_graph, d_ranks, d_residuals, damping_factor, epsilon, d_sched
     );
 	CUDA_CHECK(cudaGetLastError());
 	CUDA_CHECK(cudaEventRecord(stop));
@@ -114,6 +122,9 @@ Benchmarks::Status PAGERANK<GraphType>::solve(
 
 	CUDA_CHECK(cudaEventDestroy(start));
 	CUDA_CHECK(cudaEventDestroy(stop));
+
+    // Clean up scheduler
+	h_scheduler.device_dealloc();
 
 	return Benchmarks::Status::SUCCESS;
 }
