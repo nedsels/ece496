@@ -6,8 +6,9 @@ import scipy.sparse as sp
 from scipy.sparse.csgraph import shortest_path
 
 from conftest import TEST_GRAPHS_DIR
-from graphs import (GRAPH_NAMES, chain, disconnected, grid, make_graph,
-                    random_graph, read_gr, single_vertex, star, write_gr)
+from graphs import (GEO_GRAPH_NAMES, GRAPH_NAMES, chain, disconnected, grid,
+                    make_geo_graph, make_graph, random_graph, read_coords,
+                    read_gr, single_vertex, star, write_gr)
 
 
 def assert_same_arrays(a, b):
@@ -36,6 +37,28 @@ def test_tiny_gr_rewrites_byte_for_byte(out_dir):
     original = (TEST_GRAPHS_DIR / "tiny.gr").read_bytes()
     write_gr(out_dir / "tiny.gr", read_gr(TEST_GRAPHS_DIR / "tiny.gr"))
     assert (out_dir / "tiny.gr").read_bytes() == original
+
+
+@pytest.mark.parametrize("name", ["pr", "sink_out", "a_star"])
+def test_other_test_graphs_rewrite_byte_for_byte(name, out_dir):
+    # a_star.gr also checks the (x, y) node-data writer against a file made
+    # by the C++ side.
+    path = TEST_GRAPHS_DIR / f"{name}.gr"
+    write_gr(out_dir / "g.gr", read_gr(path), coords=read_coords(path))
+    assert (out_dir / "g.gr").read_bytes() == path.read_bytes()
+
+
+def test_read_a_star_gr_coordinates():
+    # From graphs/inputs/test/README.md.
+    np.testing.assert_array_equal(
+        read_coords(TEST_GRAPHS_DIR / "a_star.gr"),
+        [[0, 0], [3, 4], [6, 0], [6, 8], [9, 4], [12, 0], [12, 8], [15, 4],
+         [0, 8], [18, 0]])
+
+
+@pytest.mark.parametrize("name", ["tiny", "pr", "sink_out"])
+def test_no_coordinates_without_node_data(name):
+    assert read_coords(TEST_GRAPHS_DIR / f"{name}.gr") is None
 
 
 # --- Round trips -----------------------------------------------------------
@@ -172,3 +195,36 @@ def test_max_weight_range():
     assert g.data.dtype == np.int32
     assert g.data.min() >= 1 and g.data.max() <= 10
     assert np.all(chain(20).data == 1)
+
+
+# --- Geometric graphs (A*) -------------------------------------------------
+
+@pytest.mark.parametrize("name", GEO_GRAPH_NAMES)
+@pytest.mark.parametrize("seed", range(3))
+def test_round_trip_geometric(name, seed, out_dir):
+    g, xy = make_geo_graph(name, seed=seed)
+    write_gr(out_dir / "g.gr", g, coords=xy)
+    assert_same_arrays(read_gr(out_dir / "g.gr"), g)
+    np.testing.assert_array_equal(read_coords(out_dir / "g.gr"), xy)
+
+
+@pytest.mark.parametrize("name", GEO_GRAPH_NAMES)
+def test_geometric_weights_never_beat_straight_line(name):
+    # Otherwise A*'s straight-line heuristic could overestimate.
+    for seed in range(3):
+        g, xy = make_geo_graph(name, seed=seed)
+        c = g.tocoo()
+        assert np.all(c.data >= np.hypot(*(xy[c.row] - xy[c.col]).T))
+        assert not np.any(c.row == c.col)
+
+
+@pytest.mark.parametrize("name", GEO_GRAPH_NAMES)
+def test_geometric_generators_are_deterministic(name):
+    (a, xa), (b, xb) = make_geo_graph(name, seed=4), make_geo_graph(name, seed=4)
+    assert_same_arrays(a, b)
+    np.testing.assert_array_equal(xa, xb)
+
+
+def test_write_rejects_wrong_coordinate_shape(out_dir):
+    with pytest.raises(ValueError):
+        write_gr(out_dir / "g.gr", chain(5), coords=np.zeros((4, 2)))

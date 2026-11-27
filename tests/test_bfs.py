@@ -8,7 +8,8 @@ inspected by hand.
 import numpy as np
 import pytest
 
-from conftest import TEST_GRAPHS_DIR, run_gpu
+from conftest import (TEST_GRAPHS_DIR, assert_same_distances, run_gpu,
+                      run_gpu_out)
 from graphs import GRAPH_NAMES, make_graph, random_graph, read_gr, write_gr
 from reference import UNREACHED, scipy_bfs
 
@@ -18,18 +19,8 @@ REPEATS = 10 # TODO: look into an appropriate number and update
 
 def gpu_bfs(graph_path, source, out_dir, weight_type="int32"):
     """Run BFS on the GPU and read back its distances."""
-    out = out_dir / "d.bin"
-    run_gpu("bfs", graph_path, source=source, out=out, weight_type=weight_type)
-    return np.fromfile(out, dtype=np.uint32)
-
-
-def assert_same_distances(gpu, expected):
-    assert gpu.shape == expected.shape, "wrong number of distances written"
-    wrong = np.flatnonzero(gpu != expected)
-    assert wrong.size == 0, (
-        f"{wrong.size} vertices differ, first ones: "
-        + ", ".join(f"v{v}: gpu={gpu[v]} expected={expected[v]}"
-                    for v in wrong[:10]))
+    return run_gpu_out("bfs", graph_path, out_dir, weight_type=weight_type,
+                       source=source)
 
 
 # Weights up to 100 check that BFS ignores them and counts hops.
@@ -42,11 +33,21 @@ def test_bfs_matches_scipy(name, repeat, out_dir):
                           scipy_bfs(g, 0))
 
 
-@pytest.mark.parametrize("repeat", range(REPEATS))
-def test_bfs_tiny_gr(repeat, out_dir):
-    path = TEST_GRAPHS_DIR / "tiny.gr"
-    assert_same_distances(gpu_bfs(path, 0, out_dir),
-                          scipy_bfs(read_gr(path), 0))
+# The small hand-made graphs in graphs/inputs/test/. a_star.gr is left out:
+# its (x, y) node data only loads as A*'s node type (see test_a_star.py).
+SMALL_GRAPHS = ["tiny", "pr", "sink_out"]
+# Every source is run, so fewer repeats keep this quick.
+SMALL_REPEATS = 3
+
+
+@pytest.mark.parametrize("repeat", range(SMALL_REPEATS))
+@pytest.mark.parametrize("name", SMALL_GRAPHS)
+def test_bfs_small_graphs(name, repeat, out_dir):
+    path = TEST_GRAPHS_DIR / f"{name}.gr"
+    g = read_gr(path)
+    for source in range(g.shape[0]):
+        assert_same_distances(gpu_bfs(path, source, out_dir),
+                              scipy_bfs(g, source))
 
 
 @pytest.mark.parametrize("seed", range(5))
